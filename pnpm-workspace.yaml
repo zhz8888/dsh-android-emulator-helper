@@ -1,0 +1,26 @@
+# This is a single-package repository, so there are no workspace sub-packages
+# here; this file exists only to pin the install-script policy.
+#
+# pnpm v10+ does not run a dependency's install-time build scripts by default,
+# and the default failure mode is "skip silently, print a warning". That is the
+# wrong failure mode for this plugin: the browser bundle is loaded by DSH per
+# package name, and the host half imports the @deepseek-ai/* runtime artifacts in
+# the same process, so a dependency that silently skipped a build step it needs
+# would break at run time instead of at install time.
+#
+# Strict mode therefore turns that into a hard failure: any blocked build script
+# makes `pnpm install` exit with ERR_PNPM_IGNORED_BUILDS (verified locally with
+# esbuild), forcing the maintainer to take an explicit position in this file —
+# `allowBuilds: { <pkg>: true }` if the build is needed, `<pkg>: false` if it is
+# not. Never disable the protection wholesale.
+#
+# The current dependency tree (27 packages: @deepseek-ai/cordis,
+# @deepseek-ai/dsh-tools, @deepseek-ai/schemastery, react, react-dom and their
+# transitive dependencies) was scanned and contains no
+# preinstall/install/postinstall/prepare script, so no allowBuilds entry is
+# needed today.
+#
+# Note: `dsh plugin --profile <profile> add` runs pnpm inside the profile
+# directory and does not read this file; this policy only governs development
+# and CI in this repository.
+strictDepBuilds: true

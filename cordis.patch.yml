@@ -1,0 +1,23 @@
+# dsh bundle patch for dsh-android-emulator-helper.
+#
+# This file is the `dsh.bundle.patch` layer of the package. Installing the
+# plugin through the official CLI —
+#
+#   dsh plugin --profile <name> add dsh-android-emulator-helper
+#
+# — reconciles `dsh.profile.bundles` against the installed packages and, seeing
+# this declaration, appends this package to the bundle stack. Profile boot then
+# merges THIS patch, which mounts exactly one host row.
+#
+# The row id doubles as the settings namespace: `@deepseek-ai/dsh-settings`
+# keys every editable form by the profile entry id, and the browser half
+# watches that same id through `ctx.configForms.whileServed([...])`. Renaming
+# the id here therefore requires renaming `SETTINGS_NAMESPACE` in
+# `lib/settings.js` and `lib/client.js` together.
+#
+# Mounting this package twice (for example by adding the row to the profile's
+# own cordis.patch.yml while the bundle channel is also active) registers the
+# same tool names twice and fails loudly at the loader. Use one channel only.
+- insert:
+    - id: android-emulator-helper
+      name: 'dsh-android-emulator-helper'

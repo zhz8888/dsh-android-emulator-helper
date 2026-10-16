@@ -1,0 +1,151 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { splitArgumentLines } from '../lib/util/run.js'
+import { parseAdbDevices, validSerial } from '../lib/providers/device.js'
+import { parseAvds, startedEmulatorCandidates } from '../lib/providers/avd.js'
+import { inputText, parseUiAutomator } from '../lib/providers/ui.js'
+import { pickApk } from '../lib/providers/build.js'
+import { projectWarnings } from '../lib/providers/project.js'
+
+/**
+ * Pure-function tests for the ported providers.
+ *
+ * Everything asserted here is a parser or a policy decision copied from the
+ * ZCode plugin; keeping them covered is what makes the port verifiable without
+ * an Android SDK on the test machine.
+ */
+
+test('adb device parsing keeps state, kind and label attributes', () => {
+  const devices = parseAdbDevices(
+    [
+      'List of devices attached',
+      'emulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1',
+      'R58M12ABCDE            unauthorized usb:336592896X transport_id:2',
+      '',
+    ].join('\n'),
+  )
+  assert.equal(devices.length, 2)
+  assert.deepEqual(
+    devices.map((item) => [item.serial, item.state, item.kind]),
+    [
+      ['emulator-5554', 'device', 'emulator'],
+      ['R58M12ABCDE', 'unauthorized', 'device'],
+    ],
+  )
+  assert.equal(devices[0].model, 'sdk_gphone64_arm64')
+  assert.equal(devices[1].transportId, '2')
+})
+
+test('adb device parsing tolerates empty output', () => {
+  assert.deepEqual(parseAdbDevices('List of devices attached\n\n'), [])
+})
+
+test('serial validation rejects shell metacharacters', () => {
+  assert.equal(validSerial('emulator-5554'), true)
+  assert.equal(validSerial('192.168.1.5:5555'), true)
+  assert.equal(validSerial('emulator-5554; rm -rf /'), false)
+  assert.equal(validSerial(''), false)
+  assert.equal(validSerial(undefined), false)
+})
+
+test('AVD listing ignores blank lines', () => {
+  assert.deepEqual(parseAvds('Pixel_10\n\nPixel_10_Pro_Fold\n'), [{ name: 'Pixel_10' }, { name: 'Pixel_10_Pro_Fold' }])
+})
+
+test('only emulators that appeared after the start are candidates', () => {
+  const before = new Set(['emulator-5554'])
+  const devices = [
+    { serial: 'emulator-5554', state: 'device', kind: 'emulator' },
+    { serial: 'emulator-5556', state: 'device', kind: 'emulator' },
+    { serial: 'emulator-5558', state: 'offline', kind: 'emulator' },
+    { serial: 'R58M12ABCDE', state: 'device', kind: 'device' },
+  ]
+  assert.deepEqual(
+    startedEmulatorCandidates(devices, before).map((item) => item.serial),
+    ['emulator-5556'],
+  )
+})
+
+test('UI Automator XML flattens into actionable elements', () => {
+  const xml =
+    '<hierarchy><node index="0" text="Hello &amp; welcome" resource-id="com.example:id/title" class="android.widget.TextView" bounds="[0,0][1080,120]" clickable="false" enabled="true"/>' +
+    '<node index="1" text="" content-desc="incrementButton" class="android.widget.Button" bounds="[100,200][300,400]" clickable="true" enabled="true"/></hierarchy>'
+  const elements = parseUiAutomator(xml)
+  assert.equal(elements.length, 2)
+  assert.equal(elements[0].text, 'Hello & welcome')
+  assert.equal(elements[0].bounds.centerX, 540)
+  assert.equal(elements[0].bounds.centerY, 60)
+  assert.equal(elements[0].clickable, false)
+  assert.equal(elements[1].text, undefined)
+  assert.equal(elements[1].contentDescription, 'incrementButton')
+  assert.equal(elements[1].bounds.centerX, 200)
+  assert.equal(elements[1].clickable, true)
+})
+
+test('a node without bounds still parses', () => {
+  const [element] = parseUiAutomator('<node text="x" class="y"/>')
+  assert.equal(element.bounds, undefined)
+  assert.equal(element.text, 'x')
+})
+
+test('typed text escapes spaces and percent signs exactly as adb input expects', () => {
+  assert.equal(inputText('hello world'), 'hello%sworld')
+  assert.equal(inputText('100%'), '100%25')
+  assert.equal(inputText('a b%c'), 'a%sb%25c')
+  assert.throws(() => inputText('x'.repeat(1001)), /too long/)
+})
+
+test('APK selection prefers the requested variant directory', () => {
+  const hits = [
+    '/p/app/build/outputs/apk/release/app-release.apk',
+    '/p/app/build/outputs/apk/debug/app-debug.apk',
+  ]
+  assert.equal(pickApk(hits, 'debug'), '/p/app/build/outputs/apk/debug/app-debug.apk')
+  assert.equal(pickApk(hits, 'release'), '/p/app/build/outputs/apk/release/app-release.apk')
+  assert.equal(pickApk(hits, 'staging'), hits[0], 'an unknown variant falls back to the first product')
+})
+
+test('missing project files produce the documented warnings', () => {
+  assert.deepEqual(projectWarnings({ hasWrapper: true, hasGradleProperties: true, hasLocalProperties: true }), [])
+  const warnings = projectWarnings({ hasWrapper: false, hasGradleProperties: false, hasLocalProperties: false })
+  assert.equal(warnings.length, 3)
+  assert.match(warnings[0], /gradle\.properties/)
+  assert.match(warnings[1], /local\.properties/)
+  assert.match(warnings[2], /Gradle wrapper/)
+})
+
+test('argument lines ignore blanks and comments and keep inner spaces', () => {
+  const value = ['# emulator tweaks', '', '-no-snapshot-load', '  -gpu swiftshader_indirect  ', '# done'].join('\n')
+  assert.deepEqual(splitArgumentLines(value), ['-no-snapshot-load', '-gpu swiftshader_indirect'])
+  assert.deepEqual(splitArgumentLines(''), [])
+  assert.deepEqual(splitArgumentLines(undefined), [])
+})
+
+test('JDK majors normalize full versions and the legacy 1.x scheme', async () => {
+  const { majorOf } = await import('../lib/providers/sdk.js')
+  assert.equal(majorOf('24.0.2'), '24')
+  assert.equal(majorOf('21.0.6'), '21')
+  assert.equal(majorOf('1.8.0_451'), '8')
+  assert.equal(majorOf('1.8.503.01'), '8')
+  assert.equal(majorOf('17'), '17')
+  assert.equal(majorOf(''), '')
+})
+
+test('provider results are projected into the harness lossless-JSON domain', async () => {
+  const { toLosslessJson } = await import('../lib/util/content.js')
+  // The registry rejects `undefined`; optional provider attributes must vanish.
+  assert.deepEqual(toLosslessJson({ serial: 'emulator-5554', model: undefined }), { serial: 'emulator-5554' })
+  assert.deepEqual(toLosslessJson({ root: undefined }), {})
+  assert.equal(toLosslessJson(undefined), null)
+  // Nested records and arrays are normalized all the way down.
+  assert.deepEqual(
+    toLosslessJson({ devices: [{ serial: 'a', product: undefined }], bounds: { left: 0, top: undefined } }),
+    { devices: [{ serial: 'a' }], bounds: { left: 0 } },
+  )
+  assert.deepEqual(toLosslessJson([undefined, 1]), [null, 1])
+  // Non-finite numbers have no JSON representation either.
+  assert.equal(toLosslessJson(Number.NaN), null)
+  assert.equal(toLosslessJson(Number.POSITIVE_INFINITY), null)
+  // Values that survive are untouched.
+  assert.deepEqual(toLosslessJson({ ok: true, n: 0, s: '', list: [1, 2] }), { ok: true, n: 0, s: '', list: [1, 2] })
+})

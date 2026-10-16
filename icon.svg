@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="20 199 985 627" width="985" height="627" role="img">
+  <title>Android emulator helper</title>
+  <!--
+    The Android robot head, from the artwork supplied as `android.svg`, at its
+    original `#2c2c2c`.
+
+    DSH renders `package.json.icon` as an <img> whose src is a base64 data URL, so
+    the SVG is an isolated document: it cannot see the host page's
+    `body[data-ds-dark-theme]`, and `currentColor` would resolve to black. It can,
+    however, see `prefers-color-scheme`, and that is the exact lever we need — DSH
+    Desktop pushes the user's theme preference into Electron as
+    `nativeTheme.themeSource = spec.readThemeSource()` (electron-runtime), and
+    `themeSource` is precisely what drives `prefers-color-scheme` in every renderer
+    frame. Light / dark / system therefore all agree between the app chrome and
+    this image, and the fill below inverts with the theme.
+
+    `#d3d3d3` is the exact RGB inversion of `#2c2c2c` (255 - 44 = 211), which also
+    happens to balance the pair: 13.97:1 against the light background `#ffffff`
+    and 11.98:1 against the dark one `#151517`.
+
+    The fill also sits on the element as a presentation attribute, so a renderer
+    without CSS support (an SVG-to-PNG pipeline, a strict validator) still draws
+    the light-theme colour instead of nothing. Presentation attributes lose to any
+    CSS rule, which is what lets the media query override it.
+  -->
+  <style>
+    path { fill: #2c2c2c; }
+    @media (prefers-color-scheme: dark) {
+      path { fill: #d3d3d3; }
+    }
+  </style>
+  <path fill="#2c2c2c" d="M805.664 239.21c15.194 8.676 20.578 27.92 12.181 43.195l-0.258 0.462-70.477 123.435c121.382 72.426 206.947 199.48 221.734 348.54C970.712 773.67 955.922 790 937 790H88c-18.922 0-33.712-16.33-31.844-35.16 14.14-142.538 93.003-264.954 206.014-338.722L186.09 282.867c-8.763-15.348-3.425-34.893 11.923-43.656 15.194-8.676 34.502-3.53 43.39 11.465l0.266 0.457 76.406 133.822c59.16-27.753 125.102-43.216 194.427-43.216 62.75 0 122.73 12.67 177.416 35.655l72.09-126.26c8.764-15.348 28.31-20.686 43.657-11.923zM512.5 405.74c-191.04 0-352.265 136.52-387.48 319.779l-0.089 0.481h775.135l-0.088-0.481c-34.84-181.31-193.023-316.87-381.391-319.734zM320.53 565.87c23.56 0 42.66 19.115 42.66 42.695 0 23.58-19.1 42.696-42.66 42.696-23.561 0-42.66-19.116-42.66-42.696s19.099-42.695 42.66-42.695z m383.946 0c23.56 0 42.66 19.115 42.66 42.695 0 23.58-19.1 42.696-42.66 42.696-23.56 0-42.66-19.116-42.66-42.696s19.1-42.695 42.66-42.695z"/>
+</svg>
