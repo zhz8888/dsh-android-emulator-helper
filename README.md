@@ -26,14 +26,20 @@ instead of through environment variables.
 
 ```bash
 cd /path/to/dsh-android-emulator-helper
-pnpm install                     # schemastery + the @deepseek-ai/dsh-* peers
+pnpm install                     # the @deepseek-ai/* peers + react for the tests
 ```
 
-`@deepseek-ai/schemastery` is an ordinary dependency;
-`@deepseek-ai/cordis` and `@deepseek-ai/dsh-tools` are peer dependencies the host
-provides. DSH's compatibility gate compares exactly those `@deepseek-ai/dsh*`
-peer ranges against the runtime version, so a mismatch refuses the install
-loudly.
+Every `@deepseek-ai/*` package this plugin imports — `cordis`, `dsh-tools` and
+`schemastery` — is a **peer dependency the host provides**, not a dependency of
+its own: the profile already carries them, and resolving them to the host's copy
+keeps one `schemastery` instance behind the settings form. The local `pnpm
+install` above installs them for development and tests only.
+
+DSH's compatibility gate compares exactly the `@deepseek-ai/dsh*` peers against
+the runtime version, so a mismatch refuses the install loudly. The ranges are
+therefore lower-bound only (`>=0.2.0-rc.2`): an upper bound would have to be
+widened by a new release on every harness bump, and a `^` range silently drops
+the prereleases of the next version tuple.
 
 ### 2. Mount into a profile
 
@@ -179,8 +185,8 @@ Two constraints shape everything above:
 ## Development
 
 ```bash
-pnpm install                 # schemastery plus react/react-dom for the tests
-pnpm test                    # 57 tests, no Android SDK needed
+pnpm install                 # the @deepseek-ai/* peers plus react/react-dom for the tests
+pnpm test                    # 62 tests, no Android SDK needed
 pnpm run check               # tests + host/client gate + real-Cordis mount
 pnpm run verify:mount        # real Cordis Context and real ToolRuntime
 pnpm run smoke               # read-only real-machine probes

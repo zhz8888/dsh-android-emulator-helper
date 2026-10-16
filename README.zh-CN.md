@@ -30,7 +30,9 @@ cd /path/to/dsh-android-emulator-helper
 pnpm install
 ```
 
-`@deepseek-ai/schemastery` 是普通依赖；`@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-skill`、`@deepseek-ai/dsh-commands`、`@deepseek-ai/cordis` 声明为 peer 依赖，由宿主提供。DSH 的兼容性闸门正是按 `peerDependencies` 里 `@deepseek-ai/dsh*` 的版本区间与运行时版本比对，不匹配会明确拒装。
+本插件 import 的官方包 `@deepseek-ai/cordis`、`@deepseek-ai/dsh-tools`、`@deepseek-ai/schemastery` **全部声明在 `peerDependencies`**，由宿主提供：profile 里本来就带着它们，解析到宿主那一份还能保证设置表单背后只有一个 `schemastery` 实例。上面的 `pnpm install` 只为开发与测试把它们装到本仓库。
+
+DSH 的兼容性闸门正是按 `peerDependencies` 里 `@deepseek-ai/dsh*` 的版本区间与运行时版本比对，不匹配会明确拒装。区间因此**只写下界**（`>=0.2.0-rc.2`）：写上界会在 DSH 每次升版时逼着插件重发一次放宽范围，而 `^` 区间会静默漏掉下一个版本元组的预发布版。
 
 ### 2. 装进 profile
 
@@ -159,8 +161,8 @@ dsh-android-emulator-helper/
 ## 开发与验证
 
 ```bash
-pnpm install                 # 只装 schemastery 与 react/react-dom（测试用）
-pnpm test                    # 57 个测试（无需 Android SDK）
+pnpm install                 # 装官方 peer 包与 react/react-dom（开发与测试用）
+pnpm test                    # 62 个测试（无需 Android SDK）
 pnpm run check               # 测试 + host/client 一致性闸门 + 真实 Cordis 挂载验证
 pnpm run verify:mount        # 真实 Cordis Context + 真实 ToolRuntime 注册表
 pnpm run smoke               # 只读真机探测：preflight / AVD / 设备 / 项目发现 / inventory
