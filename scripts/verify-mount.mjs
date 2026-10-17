@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
+import { rmSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import * as plugin from '../lib/index.js'
+
+/** Repository root, so the scratch data directory is anchored to the project. */
+const ROOT = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
 
 /**
  * Mount the plugin on a REAL Cordis context with the REAL tool registry, then
@@ -51,7 +57,22 @@ check('the real ToolRuntime mounted', ctx.get('tools') !== undefined)
 
 // `ctx.plugin` re-validates against Config, so hand it the RAW config (a
 // pre-parsed volatile object would fail validation).
-const pluginFiber = ctx.plugin(plugin, {})
+//
+// Two settings are pinned so the verdict does not depend on the machine:
+//
+// - `dataDir` into the workspace. The default is `$DSH_HOME/android-emulator-helper`,
+//   so any provider that writes a build or emulator log would reach outside the
+//   project. That made this gate report failures that were really the
+//   environment's — a sandbox denying `~/.dsh`, or a home directory that is not
+//   writable — and a gate whose verdict changes with the sandbox is worse than
+//   no gate.
+// - `autoStartEmulator` off. Two tools reach `ensureDevice` with no target and
+//   would otherwise boot a real GUI emulator, making a `pnpm test`-adjacent gate
+//   both slow and non-deterministic. Proving that a boot works is `smoke.mjs`'s
+//   job, on a machine that has an SDK; here the tools are expected to fail
+//   inside their provider, which is exactly what the checks below assert.
+const scratch = path.join(ROOT, '.tmp-verify-mount-data')
+const pluginFiber = ctx.plugin(plugin, { dataDir: scratch, autoStartEmulator: false })
 await pluginFiber
 
 const tools = ctx.get('tools')
@@ -69,18 +90,61 @@ const signal = new AbortController().signal
 
 // The registry validates each body's value against its declared result schema,
 // which is how a mismatch between a provider's shape and a tool's schema is
-// caught. These four need no device and no project, so they always run.
+// caught. These five need neither a device nor a project, so they run always:
+// each one must reach its provider, come back without an isError, and render as
+// model-visible JSON.
 let call = 0
 for (const name of [
   'android_preflight',
   'android_list_avds',
   'android_list_devices',
   'android_discover_project',
+  'android_ui_status',
 ]) {
   const result = await tools.execute({ name, arguments: {}, callId: `verify-${++call}`, signal })
   check(`${name} dispatched through the real registry`, result.isError !== true, result.error?.message?.slice(0, 90))
   const payload = result.content?.find((block) => block.type === 'text')?.text ?? ''
   check(`${name} rendered model-visible JSON`, payload.trimStart().startsWith('{'), payload.slice(0, 50))
+}
+
+// Every remaining tool must at least survive the registry's argument validation
+// and its result schema. Without a device they are expected to fail *inside*
+// their provider (no ready target), which still proves the wiring: a schema or
+// renderer mismatch would surface as a different, distinctive error. Passing a
+// serial that cannot exist keeps the run deterministic and stops it touching a
+// real device; the explicit timeouts keep a poll loop from stalling the gate.
+const ABSENT = 'emulator-__none__'
+const DEVICE_TOOLS = [
+  ['android_start_emulator', { avd: '__verify_mount_no_such_avd__', timeoutMs: 5_000 }],
+  ['android_stop_emulator', { serial: ABSENT }],
+  ['android_create_avd', { name: '__verify_mount_no_such_avd__', packageId: 'system-images;android-99;default;arm64-v8a' }],
+  ['android_create_app', { name: 'VerifyMountProbe', dir: '.tmp-verify-mount', overwrite: true }],
+  ['android_build_app', { timeoutMs: 10_000 }],
+  ['android_build_and_run', { timeoutMs: 10_000 }],
+  ['android_install_app', { serial: ABSENT, apkPath: '/nonexistent/verify-mount.apk' }],
+  ['android_launch_app', { serial: ABSENT, applicationId: 'com.example.verify' }],
+  ['android_terminate_app', { serial: ABSENT, applicationId: 'com.example.verify' }],
+  ['android_open_url', { serial: ABSENT, url: 'https://example.com' }],
+  ['android_screenshot', { serial: ABSENT }],
+  ['android_logs', { serial: ABSENT }],
+  ['android_ui_describe', { serial: ABSENT, timeoutMs: 5_000 }],
+  ['android_ui_resolve', { serial: ABSENT, query: 'Settings', timeoutMs: 5_000 }],
+  ['android_ui_tap', { serial: ABSENT, x: 1, y: 1, timeoutMs: 5_000 }],
+  ['android_ui_swipe', { serial: ABSENT, x1: 1, y1: 1, x2: 2, y2: 2, timeoutMs: 5_000 }],
+  ['android_ui_type_text', { serial: ABSENT, text: 'x', timeoutMs: 5_000 }],
+  ['android_ui_keyevent', { serial: ABSENT, key: 'BACK', timeoutMs: 5_000 }],
+]
+for (const [name, args] of DEVICE_TOOLS) {
+  const result = await tools.execute({ name, arguments: args, callId: `verify-${++call}`, signal })
+  // A provider-level refusal is the expected outcome; a registry-level schema
+  // rejection is not. Distinguish them by the message the registry prefixes.
+  const text = result.content?.find((block) => block.type === 'text')?.text ?? ''
+  const schemaRejection = /invalid arguments|invalid result|schema/i.test(result.error?.message ?? '')
+  check(
+    `${name} reached its provider without a schema mismatch`,
+    !schemaRejection,
+    `isError=${result.isError === true} ${(result.error?.message ?? text).slice(0, 80)}`,
+  )
 }
 
 // Argument validation is the registry's, not ours: a wrong type must be refused
@@ -109,6 +173,8 @@ const afterDispose = toolNames().filter((name) => name.startsWith('android_'))
 check('disposing the plugin fiber unregisters every tool', afterDispose.length === 0, afterDispose.length)
 
 await runtimeFiber.dispose()
+
+rmSync(scratch, { recursive: true, force: true })
 
 console.log(failures === 0 ? '\nverify-mount: OK' : `\nverify-mount: ${failures} failure(s)`)
 process.exit(failures === 0 ? 0 : 1)
