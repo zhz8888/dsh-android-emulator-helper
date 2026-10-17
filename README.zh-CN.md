@@ -54,7 +54,7 @@ dsh plugin --profile <profile> add /absolute/path/to/dsh-android-emulator-helper
 
 ## 设置页面
 
-设置命名空间 = profile patch 行 id = `android-emulator-helper`（同时是 `dsh.name`）。页面通过 `ctx.configForms` 读写，因此具备暂存编辑、脏值检测、内联校验、乐观并发（revision）与「已覆盖/恢复默认」语义。
+设置命名空间 = profile patch 行 id = `android-emulator-helper`（同时是 `dsh.name`）。页面通过 `ctx.configForms` 读写，因此具备暂存编辑、脏值检测、内联校验、乐观并发（revision）与「已覆盖/恢复默认」语义。页面自绘标题、每个分组一张卡片（卡片边框就是分组之间的分隔），保存按钮位于底部悬浮胶囊操作栏，只在有可操作内容时出现：有暂存改动、正在写入，或一次失败值得重试。
 
 | 分组 | 设置项 | 类型 | 默认值 | 说明 |
 |---|---|---|---|---|
@@ -181,7 +181,7 @@ pnpm run link:dsh-deps       # 离线开发：把本机 DSH 的 @deepseek-ai 包
 | 层 | 命令 | 证明了什么 |
 |---|---|---|
 | 单元 / 解析器 | `pnpm test` | 客户端 bundle 加载契约与静态模块约束、manifest 与 patch 契约、设置投影（volatile 实时读取、环境变量回落、越界回落）、移植过来的解析器（`adb devices`、`emulator -list-avds`、UI Automator XML、`input text` 转义、APK 选择、JDK 主版本归一、无损 JSON 归一） |
-| 设置页渲染 | `pnpm test`（`client-render.test.js`） | 用真实 React + `react-dom/server` 渲染整个设置页：分组/字段/字典键完整、受控输入带真实值、开关与下拉状态正确、「已覆盖/恢复默认」、两个按钮与保存按钮齐全、无未解析字典键 |
+| 设置页渲染 | `pnpm test`（`client-render.test.js`） | 用真实 React + `react-dom/server` 渲染整个设置页：分组/字段/字典键完整、受控输入带真实值、开关与下拉状态正确、「已覆盖/恢复默认」、两个按钮齐全、无未解析字典键，且没有暂存改动时不出现操作栏 |
 | 一致性闸门 | `scripts/check-bundle.mjs` | bundle id = 包名、命名空间 = patch 行 id、host 与 client 两份字段表逐键逐选项一致、两个路由两侧一致、bundle 仍是经典脚本 |
 | 真实宿主挂载 | `scripts/verify-mount.mjs` | 在**真实** Cordis `Context` + **真实** `ToolRuntime` 上挂载：23 个工具注册成功、四个只读工具经注册表实际派发并通过参数/结果 schema 校验、错误参数被注册表拒绝、未知工具名不解析、17 个设置字段全部 volatile、dispose 后工具全部注销 |
 

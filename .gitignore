@@ -45,6 +45,13 @@ coverage/
 *.tmp
 *.temp
 
+# ─── Docs ────────────────────────────────────────────────────────────────────
+# Reverse-engineered DSH plugin contracts, the example plugin that mounts
+# offline, and the dated verification reports. None of it ships in the package,
+# none of it is read at runtime, and none of it is loaded by `pnpm test` or the
+# two gates.
+docs/
+
 # ─── Editors ─────────────────────────────────────────────────────────────────
 .vscode/
 .idea/

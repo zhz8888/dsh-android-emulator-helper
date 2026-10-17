@@ -74,7 +74,11 @@ leaves no trace when it does not.
 The settings namespace is the profile patch row id, `android-emulator-helper`.
 The page reads and writes through `ctx.configForms`, so staged edits, dirty
 detection, inline validation, optimistic-concurrency revisions and
-"overridden / reset to default" all come from the harness.
+"overridden / reset to default" all come from the harness. It draws its own
+title and one card per group — the card outline is what separates the
+categories — and the save lives in a sticky action bar at the bottom that
+appears only while there is something to act on: a staged edit, a write in
+flight, or a failure worth retrying.
 
 | Group | Field | Kind | Default |
 |---|---|---|---|
@@ -224,7 +228,7 @@ Four layers of verification:
 | Layer | Command | What it proves |
 |---|---|---|
 | Unit and parsers | `pnpm test` | Bundle load contract, manifest/patch contract, settings projection (live volatile reads, env fallback, out-of-range fallback), every ported parser, and the lossless-JSON projection |
-| Settings page render | `pnpm test` | The whole page rendered with real React and `react-dom/server`: every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, override badge and reset, both route buttons and the save control |
+| Settings page render | `pnpm test` | The whole page rendered with real React and `react-dom/server`: every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, override badge and reset, both route buttons, and no action bar while nothing is staged |
 | Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the two field tables match key-for-key, both routes agree on both sides, and the bundle is still a classic script |
 | Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, four read-only tools dispatched through the registry and validated against their argument and result schemas, malformed arguments refused, unknown names unresolved, 17 volatile fields, full unregistration on dispose |
 

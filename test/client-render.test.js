@@ -85,11 +85,27 @@ test('the controls carry the values the host serves, not placeholders', () => {
   assert.match(report.markup, /Automatic \(from the host\)/)
 })
 
-test('the diagnostics, discovery and save controls are present', () => {
+test('the diagnostics and discovery controls are present', () => {
   assert.match(report.markup, /Run diagnostic/)
   assert.match(report.markup, /Refresh devices and AVDs/)
-  assert.match(report.markup, />Save</)
   assert.match(report.markup, /Diagnostics and discovery/)
+})
+
+test('the page frames every category as its own card, under one title', () => {
+  // The section draws its own title because the shell renders only the nav
+  // label, and one card per category is what separates the groups: the outline
+  // is the separator, so no rule sits between them.
+  assert.match(report.markup, /<h2 class="aemh_title">Android Emulator<\/h2>/)
+  assert.equal((report.markup.match(/aemh_group"/g) ?? []).length >= 6, true, 'five field cards plus the tools card')
+})
+
+test('the action bar stays out of the page while nothing is staged', () => {
+  // The bar is the only place a save starts and it appears only when it has
+  // something to act on — a staged edit, a write in flight, or a failure. A
+  // clean form must render neither it nor its labels.
+  assert.ok(!report.markup.includes('aemh_actions'), 'a clean form must not render the action bar')
+  assert.ok(!/>Save</.test(report.markup), 'a clean form must not offer a save')
+  assert.ok(!/>Discard changes</.test(report.markup), 'a clean form must not offer a discard')
 })
 
 test('no unresolved dictionary key leaks into the markup', () => {
