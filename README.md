@@ -2,6 +2,11 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+The package is named `@zhz8888/dsh-android-emulator-helper`, and the plugin page
+shows its localized name — **Android Emulator** in English, **Android 模拟器** in
+Chinese — read from `locale/en.json` and `locale/zh.json`, which carry the
+one-line description too.
+
 A DSH (DeepSeek Harness) port of the official ZCode `android-emulator@0.1.0`
 plugin. All 23 tools keep their original names and argument names, and the
 plugin adds a full **settings page** (Settings → Android emulator) so the SDK,
@@ -155,7 +160,10 @@ credential-bearing environment variables.
 ```
 dsh-android-emulator-helper/
 ├── package.json            # dsh.bundle.patch, dsh.client, peer dependencies (the compatibility gate)
-├── cordis.patch.yml        # - insert: [{ id: android-emulator-helper, name: 'dsh-android-emulator-helper' }]
+├── cordis.patch.yml        # - insert: [{ id: android-emulator-helper, name: '@zhz8888/dsh-android-emulator-helper' }]
+├── icon.svg                # plugin icon: the Android robot head, brand green, readable in both themes
+├── locale/en.json          # plugin-page name and description (English; its presence is what enables every other language)
+├── locale/zh.json          # the Simplified Chinese pair
 ├── lib/
 │   ├── index.js            # host half: tools, skill, command and the two Fetch routes
 │   ├── client.js           # browser half: a hand-written __ModuleLoader__ bundle, the settings page
@@ -169,7 +177,7 @@ dsh-android-emulator-helper/
 └── test/                   # node:test unit and integration suites
 ```
 
-Two constraints shape everything above:
+Three constraints shape everything above:
 
 1. **The settings namespace has exactly one source of truth**: the profile patch
    row id. The `id` in `cordis.patch.yml`, `SETTINGS_NAMESPACE` in
@@ -181,12 +189,19 @@ Two constraints shape everything above:
    held together by that gate. The bundle may `require` only the shell's nine
    static modules (React, Cordis, `dsh-client-store`, `dsh-client-ui-slots`,
    `dsh-client-ui-primitives`, `dsh-client-ui-dockkit`, …).
+3. **The plugin-page name is a package resource, not a manifest field**: DSH
+   resolves `<package>/locale/en.json` through the `exports` map, so
+   `./locale/*.json` has to stay exported and `locale` has to stay in `files`;
+   either omission degrades silently to showing the raw package name. `en.json`
+   is also the switch that enables every other language file, so it cannot be
+   dropped in favour of `zh.json`. `test/manifest.test.js` pins all three
+   conditions.
 
 ## Development
 
 ```bash
 pnpm install                 # the @deepseek-ai/* peers plus react/react-dom for the tests
-pnpm test                    # 62 tests, no Android SDK needed
+pnpm test                    # 63 tests, no Android SDK needed
 pnpm run check               # tests + host/client gate + real-Cordis mount
 pnpm run verify:mount        # real Cordis Context and real ToolRuntime
 pnpm run smoke               # read-only real-machine probes

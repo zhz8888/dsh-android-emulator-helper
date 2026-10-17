@@ -1,5 +1,5 @@
 {
-  "name": "dsh-android-emulator-helper",
+  "name": "@zhz8888/dsh-android-emulator-helper",
   "version": "0.1.0",
   "icon": "./icon.svg",
   "description": "Android SDK, emulator and device management plus Kotlin/Compose build-and-run tools for DeepSeek Harness, ported from the official ZCode android-emulator plugin, with a full in-app settings page.",
@@ -32,11 +32,13 @@
     "./client": {
       "default": "./lib/client.js"
     },
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "lib",
     "skills",
+    "locale",
     "cordis.patch.yml",
     "icon.svg",
     "README.md",

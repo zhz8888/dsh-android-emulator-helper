@@ -2,6 +2,8 @@
 
 [English](README.md) | **简体中文**
 
+包名为 `@zhz8888/dsh-android-emulator-helper`，插件页显示的是本地化名称——英文 **Android Emulator**、中文 **Android 模拟器**——由 `locale/en.json` 与 `locale/zh.json` 提供，一句话描述也在其中。
+
 把 ZCode 官方 `android-emulator@0.1.0` 插件移植为 **DSH（DeepSeek Harness）原生插件**：原有 23 个 MCP 工具全部保留为 DSH 原生工具，并新增一个完整的 **设置页面**（设置 → Android 模拟器），让 SDK、模拟器、系统镜像、构建与输出目录等参数都能在应用里配置，而不是靠环境变量。
 
 - 工具名、参数名与原插件完全一致，为原 MCP 服务器写的工作流可直接迁移。
@@ -139,7 +141,10 @@ dsh plugin --profile <profile> add /absolute/path/to/dsh-android-emulator-helper
 ```
 dsh-android-emulator-helper/
 ├── package.json            # dsh.bundle.patch、dsh.client、peer 依赖（兼容性闸门）
-├── cordis.patch.yml        # - insert: [{ id: android-emulator-helper, name: 'dsh-android-emulator-helper' }]
+├── cordis.patch.yml        # - insert: [{ id: android-emulator-helper, name: '@zhz8888/dsh-android-emulator-helper' }]
+├── icon.svg                # 插件图标：Android 机器人头部，品牌绿，明暗主题下都可辨认
+├── locale/en.json          # 插件页的显示名与描述（英文；它的存在才是其它语言文件生效的开关）
+├── locale/zh.json          # 简体中文那一份
 ├── lib/
 │   ├── index.js            # host 半侧：注册工具 / skill / 命令 / 两个 Fetch 路由
 │   ├── client.js           # browser 半侧：__ModuleLoader__ 手写 bundle，设置页
@@ -153,16 +158,17 @@ dsh-android-emulator-helper/
 └── test/                   # node:test 单元与集成测试
 ```
 
-两个关键约束决定了上面的形状：
+三个关键约束决定了上面的形状：
 
 1. **设置命名空间只有一个真相来源**：profile patch 行 id。`cordis.patch.yml` 的 `id`、`lib/settings.js` 的 `SETTINGS_NAMESPACE`、`lib/client.js` 的字面量必须一致；`scripts/check-bundle.mjs` 会校验它们，也会校验 host 与 client 两份字段表无漂移。
 2. **browser bundle 不能 import host 模块**（客户端纯度闸门禁止跨插件值导入），因此字段表被写了两遍，靠闸门保持一致；bundle 只能 `require` 宿主的 9 个静态模块（React、Cordis、`dsh-client-store`、`dsh-client-ui-slots`、`dsh-client-ui-primitives`、`dsh-client-ui-dockkit` 等）。
+3. **插件页的名字是包内资源，不是 manifest 字段**：DSH 通过 `exports` 解析 `<包名>/locale/en.json`，所以 `./locale/*.json` 必须保持导出、`locale` 必须留在 `files` 里；任一处缺失都会静默退化成显示原始包名。`en.json` 同时是其它语言文件的开关，因此不能只留 `zh.json`。这三条都由 `test/manifest.test.js` 钉住。
 
 ## 开发与验证
 
 ```bash
 pnpm install                 # 装官方 peer 包与 react/react-dom（开发与测试用）
-pnpm test                    # 62 个测试（无需 Android SDK）
+pnpm test                    # 63 个测试（无需 Android SDK）
 pnpm run check               # 测试 + host/client 一致性闸门 + 真实 Cordis 挂载验证
 pnpm run verify:mount        # 真实 Cordis Context + 真实 ToolRuntime 注册表
 pnpm run smoke               # 只读真机探测：preflight / AVD / 设备 / 项目发现 / inventory

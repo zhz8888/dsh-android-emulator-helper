@@ -1,7 +1,7 @@
 # Android Environment Setup
 
 > Companion resource of the `android-dev` skill shipped by
-> `dsh-android-emulator-helper`. Resolve it relative to this skill's base
+> `@zhz8888/dsh-android-emulator-helper`. Resolve it relative to this skill's base
 > directory.
 
 

@@ -41,10 +41,33 @@ function officialImports(...dirs) {
 
 test('package name is the client module id', () => {
   // The web shell keys its module graph by the package name and the bundle id
-  // must match it, so this name is load-bearing in three places.
-  assert.equal(manifest.name, 'dsh-android-emulator-helper')
+  // must match it, so this name is load-bearing in three places: the manifest,
+  // the client bundle id, and the row the bundle patch mounts.
+  assert.equal(manifest.name, '@zhz8888/dsh-android-emulator-helper')
   const source = readFileSync(path.join(ROOT, 'lib', 'client.js'), 'utf8')
-  assert.match(source, /id: "dsh-android-emulator-helper"/)
+  assert.match(source, /id: "@zhz8888\/dsh-android-emulator-helper"/)
+})
+
+test('a plugin list can read a localized display name and description', () => {
+  // The harness resolves `<package>/locale/en.json` through the package exports
+  // and falls back to the raw package name when it cannot — a fallback with no
+  // error anywhere, which is why the export, the shipped directory and the two
+  // dictionaries are all pinned here. A missing en.json also drops every other
+  // language file, so `en.json` is not optional.
+  assert.equal(manifest.exports['./locale/*.json'], './locale/*.json')
+  assert.ok(manifest.files.includes('locale'), 'the published package must ship locale/')
+  const dictionaries = Object.fromEntries(
+    ['en', 'zh'].map((language) => [
+      language,
+      JSON.parse(readFileSync(path.join(ROOT, 'locale', `${language}.json`), 'utf8')),
+    ]),
+  )
+  assert.equal(dictionaries.en.meta.title, 'Android Emulator')
+  assert.equal(dictionaries.zh.meta.title, 'Android 模拟器')
+  for (const [language, dictionary] of Object.entries(dictionaries)) {
+    assert.ok(dictionary.meta.description.length > 0, `${language} needs a description`)
+    assert.ok(!dictionary.meta.title.includes('dsh-'), `${language} must not show the package name`)
+  }
 })
 
 test('exports the host half and the client bundle', () => {
@@ -70,7 +93,7 @@ test('the patch mounts exactly one row whose id is the settings namespace', () =
   const patch = readFileSync(path.join(ROOT, 'cordis.patch.yml'), 'utf8')
   const inserts = [...patch.matchAll(/^\s*-\s+id:\s*(\S+)\s*$/gm)].map((match) => match[1])
   assert.deepEqual(inserts, ['android-emulator-helper'])
-  assert.match(patch, /name:\s*'dsh-android-emulator-helper'/)
+  assert.match(patch, /name:\s*'@zhz8888\/dsh-android-emulator-helper'/)
   const source = readFileSync(path.join(ROOT, 'lib', 'settings.js'), 'utf8')
   assert.match(source, /SETTINGS_NAMESPACE = 'android-emulator-helper'/)
 })

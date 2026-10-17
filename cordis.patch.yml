@@ -1,9 +1,9 @@
-# dsh bundle patch for dsh-android-emulator-helper.
+# dsh bundle patch for @zhz8888/dsh-android-emulator-helper.
 #
 # This file is the `dsh.bundle.patch` layer of the package. Installing the
 # plugin through the official CLI —
 #
-#   dsh plugin --profile <name> add dsh-android-emulator-helper
+#   dsh plugin --profile <name> add @zhz8888/dsh-android-emulator-helper
 #
 # — reconciles `dsh.profile.bundles` against the installed packages and, seeing
 # this declaration, appends this package to the bundle stack. Profile boot then
@@ -20,4 +20,4 @@
 # same tool names twice and fails loudly at the loader. Use one channel only.
 - insert:
     - id: android-emulator-helper
-      name: 'dsh-android-emulator-helper'
+      name: '@zhz8888/dsh-android-emulator-helper'
