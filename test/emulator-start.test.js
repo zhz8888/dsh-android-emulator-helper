@@ -45,7 +45,7 @@ async function fakeRuntime() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'aemh-data-'))
   const config = {
     dataDir: { get: () => dataDir },
-    bootTimeoutMs: { get: () => 20_000 },
+    bootTimeoutSeconds: { get: () => 20 },
   }
   const rt = createRuntime({
     config,
@@ -102,7 +102,7 @@ test('the configured emulator arguments are passed through to the binary', { ski
     config: {
       dataDir: { get: () => dataDir },
       emulatorArgs: { get: () => '-no-snapshot-load\n# a comment\n-gpu swiftshader_indirect' },
-      bootTimeoutMs: { get: () => 20_000 },
+      bootTimeoutSeconds: { get: () => 20 },
     },
     exec: undefined,
     logger: { info() {}, warn() {}, error() {} },

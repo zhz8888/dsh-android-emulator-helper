@@ -39,8 +39,8 @@ test('defaults are used when nothing is configured', () => {
   assert.equal(settings.jdkMajor, '17')
   assert.equal(settings.defaultAvd, 'medium_phone')
   assert.equal(settings.autoStartEmulator, true)
-  assert.equal(settings.bootTimeoutMs, 180000)
-  assert.equal(settings.buildTimeoutMs, 600000)
+  assert.equal(settings.bootTimeoutSeconds, 180)
+  assert.equal(settings.buildTimeoutSeconds, 600)
   assert.equal(settings.minSdk, 23)
   assert.equal(settings.logTailLines, 500)
   assert.equal(settings.sdkPath, '')
@@ -75,10 +75,10 @@ test('an out-of-range select value falls back to the declared default', () => {
 
 test('a malformed number falls back instead of reaching the providers', () => {
   const settings = readSettings(
-    { bootTimeoutMs: { get: () => 'soon' }, minSdk: { get: () => -5 }, logTailLines: { get: () => 12.5 } },
+    { bootTimeoutSeconds: { get: () => 'soon' }, minSdk: { get: () => -5 }, logTailLines: { get: () => 12.5 } },
     {},
   )
-  assert.equal(settings.bootTimeoutMs, 180000)
+  assert.equal(settings.bootTimeoutSeconds, 180)
   assert.equal(settings.minSdk, 23)
   assert.equal(settings.logTailLines, 500)
 })

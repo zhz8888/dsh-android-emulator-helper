@@ -75,6 +75,12 @@ test('every field group is rendered with its heading and hint', () => {
   }
 })
 
+test('a switch does not repeat its state as on/off text', () => {
+  // The track already shows the state; a neighbouring label only says it twice.
+  assert.ok(!/>on<\/span>/.test(report.markup), 'the track already shows the state')
+  assert.ok(!/>off<\/span>/.test(report.markup))
+})
+
 test('the controls carry the values the host serves, not placeholders', () => {
   // A controlled input renders its live value; the checked switch proves the
   // boolean path; the selected option proves the enum path is not blank.
