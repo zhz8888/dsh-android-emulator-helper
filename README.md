@@ -89,12 +89,12 @@ flight, or a failure worth retrying.
 | | `defaultSerial` | text, suggestions | empty |
 | | `autoStartEmulator` | switch | on |
 | | `emulatorArgs` | multiline, one argument per line | empty |
-| | `bootTimeoutMs` | integer | `180000` |
+| | `bootTimeoutSeconds` | integer | `180` |
 | API and system image | `apiLevel` | text, suggestions | `35` |
 | | `systemImageVariant` | select | `default` |
 | | `systemImageAbi` | select (empty = host architecture) | auto |
 | | `minSdk` | integer | `23` |
-| Build | `buildTimeoutMs` | integer | `600000` |
+| Build | `buildTimeoutSeconds` | integer | `600` |
 | | `gradleExtraArgs` | multiline | empty |
 | Output and logs | `dataDir` | text | `$DSH_HOME/android-emulator-helper` |
 | | `screenshotDir` | text | `<data dir>/screenshots` |
@@ -205,7 +205,7 @@ Three constraints shape everything above:
 
 ```bash
 pnpm install                 # the @deepseek-ai/* peers plus react/react-dom for the tests
-pnpm test                    # 63 tests, no Android SDK needed
+pnpm test                    # 145 tests, no Android SDK needed
 pnpm run check               # tests + host/client gate + real-Cordis mount
 pnpm run verify:mount        # real Cordis Context and real ToolRuntime
 pnpm run smoke               # read-only real-machine probes
@@ -229,8 +229,10 @@ Four layers of verification:
 |---|---|---|
 | Unit and parsers | `pnpm test` | Bundle load contract, manifest/patch contract, settings projection (live volatile reads, env fallback, out-of-range fallback), every ported parser, and the lossless-JSON projection |
 | Settings page render | `pnpm test` | The whole page rendered with real React and `react-dom/server`: every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, override badge and reset, both route buttons, and no action bar while nothing is staged |
-| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the two field tables match key-for-key, both routes agree on both sides, and the bundle is still a classic script |
-| Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, four read-only tools dispatched through the registry and validated against their argument and result schemas, malformed arguments refused, unknown names unresolved, 17 volatile fields, full unregistration on dispose |
+| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
+| Route integration | `test/routes-integration.test.js` | The two settings routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 17 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing both routes |
+| Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, **all 23 dispatched through the registry** and validated against their argument and result schemas, malformed arguments refused, unknown names unresolved, 17 volatile fields, full unregistration on dispose |
+| Real device | `pnpm run smoke` … | What only a machine with an SDK, an emulator and Gradle can prove: discovery, boot and teardown, screenshots, logcat, UI automation, and a real `android_create_app` → build → install → launch cycle |
 
 ### Registry constraints that shape the tools
 
@@ -247,11 +249,6 @@ hand-written test double:
   value on the single path every tool result travels, instead of 23 providers
   each handling it.
 
-`docs/research/` documents the DSH plugin contracts this port depends on, with
-line-level citations into the shipped packages. It is the closest thing to a
-"DSH plugin development spec" that exists, because the application bundle ships
-no developer documentation.
-
 ## Known limitations
 
 - Linux is unsupported, exactly as in the original; `android_preflight` reports
@@ -263,11 +260,13 @@ no developer documentation.
 - The settings page's installed-image list comes from scanning the SDK
   directory, not from `sdkmanager --list_installed`, which fails in restricted
   environments and prefixes its output with deprecation notices.
-- **The settings page has not been visually confirmed in the real GUI**: the
-  delivery choice was source-only, so it was never installed into the `desktop`
-  profile. Its render layer is covered by the server-render test above, but
-  spacing, dark theme and narrow-width wrapping should be checked after
-  installing.
+- The settings page's two routes are served by the plugin and are mounted in a
+  real profile, but their HTTP responses cannot be exercised outside the GUI:
+  the desktop app authenticates every request, so a bare `curl` to
+  `/api/android-emulator-helper/status` answers `403 forbidden` before the
+  handler runs. `test/routes-integration.test.js` therefore invokes the handlers
+  directly on a real Cordis context instead. The page's spacing, dark theme and
+  narrow-width wrapping still deserve a human look in the GUI.
 - `@deepseek-ai/dsh-client-ui-primitives` publishes only `0.0.1-rc.1` on npm,
   which does not match the runtime API, so the render test uses a faithful double
   for the primitives while React and `react-dom/server` stay real.

@@ -65,12 +65,12 @@ dsh plugin --profile <profile> add /absolute/path/to/dsh-android-emulator-helper
 | | `defaultSerial` | 文本（建议来自已连接设备） | 空 | 优先使用的设备序列号 |
 | | `autoStartEmulator` | 开关 | 开 | 关闭后无可用设备时直接报错，不启动模拟器 |
 | | `emulatorArgs` | 多行文本 | 空 | 额外 `emulator` 参数，每行一个，`#` 为注释 |
-| | `bootTimeoutMs` | 整数 | `180000` | 模拟器启动超时 |
+| | `bootTimeoutSeconds` | 整数 | `180` | 模拟器启动超时（秒） |
 | API 与系统镜像 | `apiLevel` | 文本（建议来自已装 platform/镜像） | `35` | `compileSdk` 与系统镜像包名使用的 API 级别 |
 | | `systemImageVariant` | 下拉 | `default` | `default` / `google_apis` / `google_apis_playstore` |
 | | `systemImageAbi` | 下拉 | 自动 | 留空按宿主架构，Apple Silicon 用 `arm64-v8a` |
 | | `minSdk` | 整数 | `23` | `android_create_app` 生成项目的默认 minSdk |
-| 构建 | `buildTimeoutMs` | 整数 | `600000` | 单次 assemble 的最长运行时间 |
+| 构建 | `buildTimeoutSeconds` | 整数 | `600` | 单次 assemble 的最长运行时间（秒） |
 | | `gradleExtraArgs` | 多行文本 | 空 | 额外 Gradle 参数，每行一个 |
 | 输出目录与日志 | `dataDir` | 文本 | 空 | 截图与构建日志根目录；留空用 `$DSH_HOME/android-emulator-helper` |
 | | `screenshotDir` | 文本 | 空 | 截图目录；留空用 `<数据目录>/screenshots` |
@@ -168,7 +168,7 @@ dsh-android-emulator-helper/
 
 ```bash
 pnpm install                 # 装官方 peer 包与 react/react-dom（开发与测试用）
-pnpm test                    # 63 个测试（无需 Android SDK）
+pnpm test                    # 145 个测试（无需 Android SDK）
 pnpm run check               # 测试 + host/client 一致性闸门 + 真实 Cordis 挂载验证
 pnpm run verify:mount        # 真实 Cordis Context + 真实 ToolRuntime 注册表
 pnpm run smoke               # 只读真机探测：preflight / AVD / 设备 / 项目发现 / inventory
@@ -182,10 +182,13 @@ pnpm run link:dsh-deps       # 离线开发：把本机 DSH 的 @deepseek-ai 包
 |---|---|---|
 | 单元 / 解析器 | `pnpm test` | 客户端 bundle 加载契约与静态模块约束、manifest 与 patch 契约、设置投影（volatile 实时读取、环境变量回落、越界回落）、移植过来的解析器（`adb devices`、`emulator -list-avds`、UI Automator XML、`input text` 转义、APK 选择、JDK 主版本归一、无损 JSON 归一） |
 | 设置页渲染 | `pnpm test`（`client-render.test.js`） | 用真实 React + `react-dom/server` 渲染整个设置页：分组/字段/字典键完整、受控输入带真实值、开关与下拉状态正确、「已覆盖/恢复默认」、两个按钮齐全、无未解析字典键，且没有暂存改动时不出现操作栏 |
-| 一致性闸门 | `scripts/check-bundle.mjs` | bundle id = 包名、命名空间 = patch 行 id、host 与 client 两份字段表逐键逐选项一致、两个路由两侧一致、bundle 仍是经典脚本 |
-| 真实宿主挂载 | `scripts/verify-mount.mjs` | 在**真实** Cordis `Context` + **真实** `ToolRuntime` 上挂载：23 个工具注册成功、四个只读工具经注册表实际派发并通过参数/结果 schema 校验、错误参数被注册表拒绝、未知工具名不解析、17 个设置字段全部 volatile、dispose 后工具全部注销 |
+| 一致性闸门 | `scripts/check-bundle.mjs` | bundle id = 包名、命名空间 = patch 行 id、host 与 client 两份字段表与分组表逐键逐序一致、每个标题/提示/占位符/选项在**两种语言下都逐字一致**、两个路由两侧一致、`locale/*.json` 两种语言键集相同、bundle 仍是经典脚本 |
+| 路由集成 | `test/routes-integration.test.js` | 在**真实** Cordis `Context` 上挂载两条设置路由：真正调用 handler 并读取其 `Response`、17 个字段都以 volatile 引用形式到达、保存的设置对下一次调用立即可见、handler 出错时返回 `500` JSON 体而不是抛出、缺少可选服务时仍能挂载、dispose 后两条路由都被移除 |
+| 真实宿主挂载 | `scripts/verify-mount.mjs` | 在**真实** Cordis `Context` + **真实** `ToolRuntime` 上挂载：23 个工具注册成功、**23 个工具全部经注册表实际派发**并通过参数/结果 schema 校验、错误参数被注册表拒绝、未知工具名不解析、17 个设置字段全部 volatile、dispose 后工具全部注销 |
+| 真机 | `pnpm run smoke`… | 只有带 SDK、模拟器与 Gradle 的机器才能证明的部分：发现、启动与停止、截图、logcat、UI 自动化，以及真实的 `android_create_app` → 构建 → 安装 → 启动闭环 |
 
 `pnpm run smoke` 覆盖只有真机才能证明的部分：SDK 发现、`adb`/`emulator` 实际调用、环境拼装、设置投影真正喂给 provider。
+`pnpm run smoke:emulator` 进一步覆盖启动模拟器 → 截图 → 读日志 → 停止的完整链路。
 
 ### 注册表给工具层带来的两条约束
 
@@ -199,10 +202,6 @@ pnpm run link:dsh-deps       # 离线开发：把本机 DSH 的 @deepseek-ai 包
   `bounds`、发现结果没有 Gradle 根），因此在所有工具结果唯一的必经路径上用
   `toLosslessJson()` 统一归一，而不是在 23 个 provider 里各处理一遍。
 
-`docs/research/` 记录了本次移植所依赖的 DSH 插件契约，全部带指向实际包源码的
-逐行引用；DSH 应用包不提供开发者文档，这是目前最接近「DSH 插件开发规范」的
-可核对材料。
-
 ## 已知限制
 
 - **Linux 不支持**，与原插件一致；`android_preflight` 会将其标记为不支持的宿主。
@@ -210,7 +209,7 @@ pnpm run link:dsh-deps       # 离线开发：把本机 DSH 的 @deepseek-ai 包
 - `android_create_avd` 对 `avdmanager` 的确认提示固定回答 `no`，绝不静默触发数 GB 的镜像下载；需要先自行 `sdkmanager --install`。
 - UI 自动化依赖设备端 `uiautomator`；失败时 `android_ui_status` 会报告不可用，构建/运行/截图链路不受影响。
 - 设置页的「已安装系统镜像」列表来自 SDK 目录扫描，而不是 `sdkmanager --list_installed`（后者在受限环境下会因创建 bin 目录失败，且输出含大量弃用提示）。
-- **设置页尚未在真实 GUI 中人工目视确认**：交付方式选择了「只交付源码包」，未安装进 `desktop` profile。渲染层已由真实 React 的服务端渲染测试覆盖（见上表），但视觉细节（间距、暗色主题、窄屏换行）需要装上后自行核对。
+- 设置页的两条路由由插件提供、并在真实 profile 中挂载，但它们的 HTTP 响应无法在 GUI 之外验证：桌面端对每个请求做鉴权，未带浏览器会话的 `curl` 访问 `/api/android-emulator-helper/status` 会在进入 handler 之前就返回 `403 forbidden`。因此 `test/routes-integration.test.js` 改为在真实 Cordis context 上直接调用 handler。设置页的间距、暗色主题与窄屏换行仍建议在 GUI 中人工核对一次。
 - `@deepseek-ai/dsh-client-ui-primitives` 在 npm 上只有 `0.0.1-rc.1`，与运行时 API 不一致；因此设置页渲染测试对 primitives 使用了忠实替身，真实 React 与 `react-dom/server` 仍是真件。
 - 插件不触碰凭据：不读取、不转发任何含 key/token/secret 的环境变量。
 
