@@ -107,6 +107,59 @@ left, list continuations indented four spaces under their bullet.
 One logical change per commit. `build: bump the version to x.y.z` is the release
 commit and the tag points at it.
 
+Package versions follow the conventional-commits mapping: **a landed `feat:`
+means at least a minor bump**. A branch with two features is `x.(y+1).0`, not
+`x.y.(z+1)`, even when the diff is mostly fixes.
+
+## Release and publishing
+
+1. Land the documentation first. The README on the npm page is the copy **inside
+   the published tarball**, so a README edit reaches npm only with the next
+   publish.
+2. Bump `version` in `package.json` and commit it as `build: bump the version to
+   x.y.z`. Nothing else rides along.
+3. Tag `vX.Y.Z` **lightweight** — `git tag vX.Y.Z`, as `v1.0.0` and `v1.1.0` are;
+   not annotated — then push `main` and the tag to **both** remotes. A mirror
+   left holding the old tip will push it back.
+
+   ```bash
+   git push origin main && git push origin vX.Y.Z
+   git push gitea  main && git push gitea  vX.Y.Z
+   ```
+
+4. Publish from the tagged commit. Both flags are required: the local `.npmrc`
+   points `registry` at a read-only mirror, and a scoped package stays private
+   without public access.
+
+   ```bash
+   npm publish --registry https://registry.npmjs.org --access public
+   ```
+
+   On a 2FA account npm adds a browser approval step and may stage a temporary
+   `0.0.0-stage` version first; that placeholder is expected.
+5. Verify the release rather than assuming it: `gitHead` must equal the tag
+   commit, and the published tarball's shasum must equal what the local pack
+   printed.
+
+   ```bash
+   npm view @zhz8888/dsh-android-emulator-helper@X.Y.Z gitHead --registry https://registry.npmjs.org
+   git rev-parse vX.Y.Z^{commit}
+   ```
+
+   `npm pack` fails on this machine because `~/.npm` holds root-owned files;
+   `pnpm pack` is the working equivalent and prints the same file list.
+6. Write the GitHub Release for the tag: **Chinese first, then English**, the
+   halves separated by `---` and each opening with its own `##` headline. Both
+   halves carry the same sections — a one-line summary, what the version
+   contains, what changed since the previous version, install, verification (the
+   checks actually run, with their results), and the release artifact (npm
+   version, tarball file count and size, sha256, and the `gitHead` ↔ tag match).
+
+**After an upgrade the host must be restarted.** The package is mounted as a
+`link:` symlink, so no `lib/` change takes effect until DSH restarts. Say so in
+the release notes: a user who upgrades and keeps the old process sees the old
+behaviour and will report the bugs this version fixed.
+
 ## Do not
 
 - Add a runtime dependency. The harness provides the `@deepseek-ai/*` peers, and

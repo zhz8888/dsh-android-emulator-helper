@@ -20,6 +20,8 @@
 - [架构](#架构)
 - [开发与验证](#开发与验证)
 - [已知限制](#已知限制)
+- [版本](#版本)
+- [许可](#许可)
 
 ## 安装
 
@@ -212,6 +214,15 @@ pnpm run link:dsh-deps       # 离线开发：把本机 DSH 的 @deepseek-ai 包
 - 设置页的两条路由由插件提供、并在真实 profile 中挂载，但它们的 HTTP 响应无法在 GUI 之外验证：桌面端对每个请求做鉴权，未带浏览器会话的 `curl` 访问 `/api/android-emulator-helper/status` 会在进入 handler 之前就返回 `403 forbidden`。因此 `test/routes-integration.test.js` 改为在真实 Cordis context 上直接调用 handler。设置页的间距、暗色主题与窄屏换行仍建议在 GUI 中人工核对一次。
 - `@deepseek-ai/dsh-client-ui-primitives` 在 npm 上只有 `0.0.1-rc.1`，与运行时 API 不一致；因此设置页渲染测试对 primitives 使用了忠实替身，真实 React 与 `react-dom/server` 仍是真件。
 - 插件不触碰凭据：不读取、不转发任何含 key/token/secret 的环境变量。
+
+## 版本
+
+| 版本 | 要点 |
+|---|---|
+| **1.1.0** | 设置页按卡片重做并加底部粘性操作栏；两处超时改为按秒填写；修复 8 个缺陷，其中包含生成的新工程编译不过、`android_ui_type_text` 把每个 `%` 变成 `%25`、`android_ui_describe` 在 dump 失败时返回上一屏、`android_start_emulator` 传入不存在的 AVD 名却静默启动另一个模拟器。23 个工具全部在真机上实测过。 |
+| 1.0.0 | 首个版本：23 个原生 `android_*` 工具、内置 `android-dev` skill 与 `/android-dev` 命令，以及设置页。 |
+
+**升级后请重启 DSH 宿主进程。** 本包以 `link:` 软链挂载，Node 对 ESM 做进程级缓存，`lib/` 的改动在宿主重启前不会生效——否则工具仍会跑旧代码。
 
 ## 许可
 

@@ -23,6 +23,7 @@ instead of through environment variables.
 - [Architecture](#architecture)
 - [Development](#development)
 - [Known limitations](#known-limitations)
+- [Releases](#releases)
 - [License](#license)
 
 ## Install
@@ -270,6 +271,18 @@ hand-written test double:
 - `@deepseek-ai/dsh-client-ui-primitives` publishes only `0.0.1-rc.1` on npm,
   which does not match the runtime API, so the render test uses a faithful double
   for the primitives while React and `react-dom/server` stay real.
+
+## Releases
+
+| Version | Highlights |
+|---|---|
+| **1.1.0** | Settings page rebuilt around cards with a sticky action bar; both timeouts asked for in seconds; eight defects fixed, among them a generated project that did not compile, `android_ui_type_text` corrupting every `%` into `%25`, `android_ui_describe` serving the previous screen after a failed dump, and `android_start_emulator` silently starting a different AVD than the one requested. All 23 tools were exercised on a real emulator. |
+| 1.0.0 | First release: the 23 native `android_*` tools, the embedded `android-dev` skill and the `/android-dev` command, and the settings page. |
+
+**Restart the DSH host process after upgrading.** The package is mounted as a
+`link:` symlink and Node caches ESM modules for the life of the process, so a
+change under `lib/` does not take effect until the host restarts — until then the
+tools keep serving the old code.
 
 ## License
 
