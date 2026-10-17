@@ -88,10 +88,13 @@ test('a node without bounds still parses', () => {
   assert.equal(element.text, 'x')
 })
 
-test('typed text escapes spaces and percent signs exactly as adb input expects', () => {
+test('typed text escapes spaces exactly as adb input expects, and leaves percent alone', () => {
   assert.equal(inputText('hello world'), 'hello%sworld')
-  assert.equal(inputText('100%'), '100%25')
-  assert.equal(inputText('a b%c'), 'a%sb%25c')
+  // `input text` understands `%s` for a space and nothing else — it is not a URL
+  // decoder. Escaping `%` to `%25` made the device type those four characters
+  // literally, so a caller typing "100%" read back "100%25".
+  assert.equal(inputText('100%'), '100%')
+  assert.equal(inputText('a b%c'), 'a%sb%c')
   assert.throws(() => inputText('x'.repeat(1001)), /too long/)
 })
 
