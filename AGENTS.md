@@ -16,11 +16,12 @@ generated.
 
 ```bash
 pnpm install                 # @deepseek-ai/* peers + react/react-dom, for tests only
-pnpm test                    # unit, settings projection, parsers, render, routes
+pnpm test                    # 151 tests: unit, settings projection, parsers, render, routes
 pnpm run check               # test + check-bundle + verify-mount: the definition of done
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
 pnpm run smoke               # read-only real-machine probes
 pnpm run smoke:emulator      # also boot an AVD, screenshot, logs, stop
+pnpm run link:dsh-deps       # offline dev: symlink a local DSH's @deepseek-ai packages
 ```
 
 `pnpm run check` must be green before any commit that touches `lib/`. It is the
@@ -28,6 +29,60 @@ only command that catches host↔client drift.
 
 Anything needing an SDK, an emulator or Gradle is a `scripts/smoke.mjs` concern
 and must never become a `pnpm test` requirement.
+
+The local `pnpm install` exists for development and the test suite; installing
+the published package needs none of it. pnpm is the only package manager the
+repository uses: `packageManager` pins `pnpm@11.8.0` and `pnpm-lock.yaml` is the
+only lockfile (there is no `package-lock.json`). `pnpm-workspace.yaml` does not
+open a workspace — this is a single-package repository — it carries the
+install-script policy, `strictDepBuilds: true`: pnpm v10+ skips a dependency's
+build scripts *silently* by default, which is the wrong failure mode here, so
+strict mode fails `pnpm install` with `ERR_PNPM_IGNORED_BUILDS` and forces an
+explicit per-package decision. The current tree (27 packages) declares no
+install-time build scripts, so no `allowBuilds` entry is needed.
+
+## Repository map
+
+```
+dsh-android-emulator-helper/
+├── package.json            # dsh.bundle.patch, dsh.client, peer dependencies (the compatibility gate)
+├── cordis.patch.yml        # - insert: [{ id: android-emulator-helper, name: '@zhz8888/dsh-android-emulator-helper' }]
+├── android-emulator.png    # plugin icon: ZCode's artwork, pale tile keyed out, 192 px
+├── screenshots.json        # the four preview images a plugin market shows, in scroll order
+├── locale/en.json          # plugin-page name and description (English; its presence is what enables every other language)
+├── locale/zh.json          # the Simplified Chinese pair
+├── lib/
+│   ├── index.js            # host half: tools, skill, command and the two Fetch routes
+│   ├── client.js           # browser half: a hand-written __ModuleLoader__ bundle, the settings page
+│   ├── settings.js         # field declarations, the schemastery Config (every field .volatile()), live reads
+│   ├── runtime.js          # one runtime per call: session cwd + live settings → data directory
+│   ├── tools/index.js      # the 23 defineTool definitions, argument/result schemas, image admission
+│   ├── providers/          # ported from the original plugin file by file, now taking an explicit runtime
+│   └── util/               # process execution, paths, content blocks
+├── skills/android-dev/     # SKILL.md + INSTALL_ENVIRONMENT.md
+├── scripts/                # check-bundle.mjs (consistency gate), smoke.mjs (real-machine), verify-mount.mjs
+├── assets/                 # the four settings-page screenshots `screenshots.json` names
+└── test/                   # node:test unit and integration suites
+```
+
+Three constraints shape that layout:
+
+1. **The settings namespace has exactly one source of truth**: the profile patch
+   row id. The `id` in `cordis.patch.yml`, `SETTINGS_NAMESPACE` in
+   `lib/settings.js` and the literal in `lib/client.js` must agree;
+   `scripts/check-bundle.mjs` verifies them, and also that the host and client
+   field tables have not drifted apart.
+2. **A browser bundle cannot import a host module** — the client purity gate
+   forbids cross-plugin value imports — so the field table is written twice and
+   held together by that gate. The bundle may `require` only the shell's nine
+   static modules (React, Cordis, `dsh-client-store`, `dsh-client-ui-slots`,
+   `dsh-client-ui-primitives`, `dsh-client-ui-dockkit`, …).
+3. **The plugin-page name is a package resource, not a manifest field**: DSH
+   resolves `<package>/locale/en.json` through the `exports` map, so
+   `./locale/*.json` has to stay exported and `locale` has to stay in `files`;
+   either omission degrades silently to showing the raw package name. `en.json`
+   is also the switch that enables every other language file, so it cannot be
+   dropped in favour of `zh.json`.
 
 ## The two halves share a contract, not code
 
@@ -165,6 +220,37 @@ built on `node:zlib`) to confirm the corners are transparent, that no pixel abov
 are the eyes, round and equal. A shrunken, re-encoded, naively keyed or
 crescent-painted icon fails the suite instead of shipping.
 
+## Testing
+
+`pnpm run check` is the definition of done: the unit and render suites, then the
+consistency gate, then the mount. `pnpm test` alone is not enough — it cannot see
+the host↔client drift the gate exists for.
+
+| Layer | Command | What it proves |
+|---|---|---|
+| Unit and parsers | `pnpm test` | Bundle load contract, manifest and patch contract, settings projection (live volatile reads, env fallback, out-of-range fallback), every ported parser (`adb devices`, `emulator -list-avds`, UI Automator XML, `input text` escaping, APK selection, JDK major normalisation), and the lossless-JSON projection |
+| Settings page render | `pnpm test` (`client-render.test.js`) | The whole page rendered with real React and `react-dom/server`: every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, the override badge and reset, both route buttons, and no action bar while nothing is staged |
+| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, the plugin name matches the heading and nav label the bundle renders, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
+| Route integration | `test/routes-integration.test.js` | The two settings routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 17 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing both routes |
+| Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, **all 23 dispatched through the registry** and validated against their argument and result schemas, malformed arguments refused, unknown names unresolved, 17 volatile fields, full unregistration on dispose |
+
+`pnpm run smoke` and `pnpm run smoke:emulator` are the real-machine layer and
+never run under `pnpm test`: only a machine with an SDK, an emulator and Gradle
+can prove discovery, boot and teardown, screenshots, logcat, UI automation and a
+real `android_create_app` → build → install → launch cycle.
+
+Two limits are accepted rather than worked around:
+
+- The settings routes are mounted in a real profile, but their HTTP responses
+  cannot be exercised outside the GUI: the desktop app authenticates every
+  request, so a bare `curl` answers `403 forbidden` before the handler runs.
+  `test/routes-integration.test.js` therefore invokes the handlers directly on a
+  real Cordis context, and the page's spacing, dark theme and narrow-width
+  wrapping are checked by eye in the GUI.
+- `@deepseek-ai/dsh-client-ui-primitives` publishes only `0.0.1-rc.1` on npm,
+  which does not match the runtime API, so the render test uses a faithful double
+  for the primitives while React and `react-dom/server` stay real.
+
 ## Commit conventions
 
 Conventional Commits, English, imperative subject, no trailing period, subject
@@ -250,6 +336,11 @@ behaviour and will report the bugs this version fixed.
   `.gradle/`, `*.tgz`, coverage. `assets/` and `screenshots.json` are the one
   curated exception, and only the four files the gallery names.
 - Describe behaviour in the READMEs that the source does not implement.
+- Replace the direct `spawn` with DSH's subprocess seam. `gradlew`, `adb` and
+  `emulator` behaving byte-for-byte as they did in the original is the reason the
+  port is usable, and `adb exec-out` needs no binary-stream adapter; the accepted
+  cost is no managed process ranges, env scrubbing, output spill or teardown
+  termination, which is why every call carries its own timeout and `SIGTERM`.
 - Let a generated project depend on hand edits to build. `android_create_app`
   must emit a project that compiles as-is; `lib/providers/project-template.js`
   pins the JVM target for exactly that reason.

@@ -1,143 +1,128 @@
 # dsh-android-emulator-helper
 
-**English** | [简体中文](README.zh-CN.md)
+[English](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/README.md) | [简体中文](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/README.zh-CN.md)
 
-The package is named `@zhz8888/dsh-android-emulator-helper`, and the plugin page
-shows its localized name — **Android Emulator Helper** / **Android 模拟器助手** —
-read from `locale/en.json` and `locale/zh.json`, which carry the one-line
-description too.
+[![npm version](https://img.shields.io/npm/v/@zhz8888/dsh-android-emulator-helper.svg)](https://www.npmjs.com/package/@zhz8888/dsh-android-emulator-helper)
+[![license: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/LICENSE)
+[![target: DSH](https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2-blue.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
 
-A DSH (DeepSeek Harness) port of the official ZCode `android-emulator@0.1.0`
-plugin. All 23 tools keep their original names and argument names, and the
-plugin adds a full **settings page** (Settings → Android emulator) so the SDK,
-emulator, system-image, build and output parameters are configured in the app
-instead of through environment variables.
+A DeepSeek Harness (DSH) native port of the official ZCode `android-emulator@0.1.0` plugin: all 23 original MCP tools preserved as native DSH tools, plus a full **settings page** (Settings → Android emulator) that edits the SDK, emulator, system-image, build and output parameters in-app instead of through environment variables.
+
+- Tool and argument names are identical to the original, so workflows written for its `android_emulator` MCP server keep working; the port adds no tool and drops none.
+- 17 settings fields in 5 groups, all live-editable; the seven fields the original exposed still fall back to their `ANDROID_PLUGIN_*` variable, then to the built-in default.
+- `android_preflight` and the settings page's **Run diagnostic** button run the same checks — SDK, `adb`, `emulator`, AVDs, JDK, Gradle — and print a fix for each failure.
+- Published as `@zhz8888/dsh-android-emulator-helper`; the plugin page shows **Android Emulator Helper** / **Android 模拟器助手** from `locale/` rather than the raw package name, and both descriptions say the plugin is unofficial and not affiliated with Google.
+
+## Quick start
+
+On a machine with an Android SDK, a JDK and DSH installed:
+
+1. **Install the plugin**
+
+   ```bash
+   dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper
+   ```
+
+   In DSH Desktop, open **Plugins** and add the same package name there. Reload or restart DSH afterwards.
+
+2. **Check the machine** — open **Settings → Android emulator** and press **Run diagnostic**. It runs exactly the checks `android_preflight` runs, and prints a fix for anything missing.
+
+3. **Use it** — ask for what you want ("build and run this project on the emulator", "screenshot the running app"), or call the 23 `android_*` tools directly. Everything the tools need is editable on that settings page.
 
 ## Contents
 
+- [Quick start](#quick-start)
+- [Requirements](#requirements)
 - [Install](#install)
 - [Settings page](#settings-page)
 - [Screenshots](#screenshots)
 - [Tools](#tools)
-- [Skill and command](#skill-and-command)
+- [Skill and slash command](#skill-and-slash-command)
 - [Differences from the original](#differences-from-the-original)
-- [Architecture](#architecture)
-- [Development](#development)
 - [Known limitations](#known-limitations)
 - [Releases](#releases)
+- [Contributing](#contributing)
 - [License](#license)
+
+## Requirements
+
+| Dependency | Notes |
+|---|---|
+| Android SDK | `sdkPath` on the settings page, else `ANDROID_HOME`, `ANDROID_SDK_ROOT`, then the common install paths. |
+| Platform tools, emulator and a system image | `adb` and `emulator` come from the SDK; an AVD needs a system image for the API level you target. |
+| JDK | `jdkMajor` (`17` by default) selects the JDK a build runs on; the generated project's JVM target is derived from it and clamped to [17, 21]. |
+| Gradle | `android_build_app` uses the project's `./gradlew` when it has one and `gradle` from `PATH` otherwise, and can generate the wrapper with that `gradle`. The project `android_create_app` writes ships no wrapper. |
+| A device or an AVD | An attached device, or an AVD to boot; `autoStartEmulator` decides whether the tools may boot one themselves. |
+| Node.js ≥ 22 | The DSH host runtime. |
+
+`android_preflight` checks every item above and prints a fix for each failure; the settings page's **Run diagnostic** button runs the same checks.
 
 ## Install
 
-### 1. Install dependencies
-
 ```bash
-cd /path/to/dsh-android-emulator-helper
-pnpm install                     # the @deepseek-ai/* peers + react for the tests
+dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper
 ```
 
-Every `@deepseek-ai/*` package this plugin imports — `cordis`, `dsh-tools` and
-`schemastery` — is a **peer dependency the host provides**, not a dependency of
-its own: the profile already carries them, and resolving them to the host's copy
-keeps one `schemastery` instance behind the settings form. The local `pnpm
-install` above installs them for development and tests only; the range they
-declare is the DSH requirement described under
-[The DSH version gate](#the-dsh-version-gate).
+**DSH Desktop**: the `desktop` profile belongs to the Electron app — open **Plugins**, add `@zhz8888/dsh-android-emulator-helper` there, and enable the row it creates. After a reload or restart the page is at **Settings → Android emulator**; it only appears while the host half actually serves this plugin's settings namespace.
 
-### 2. Mount into a profile
+The published tarball contains everything the plugin needs — the host half, the browser bundle, the bundled skill and the `locale/` entries — and nothing is compiled at install time, so no build approval step is involved. `@deepseek-ai/cordis`, `@deepseek-ai/dsh-tools` and `@deepseek-ai/schemastery` are **peer dependencies** provided by the harness, so the plugin pulls in no second copy and has **no runtime dependencies** of its own; DSH's compatibility gate compares the `@deepseek-ai/dsh*` peer ranges against the running version and refuses to install on a mismatch.
 
-**DSH Desktop**: the `desktop` profile is managed exclusively by the Electron
-app — `dsh plugin --profile desktop` is refused by the CLI. Install through the
-in-app plugin manager instead.
+> Mount the package exactly once. `dsh plugin add` records the row in `dsh.profile.bundles`; adding a second row for the same package in the profile's own `cordis.patch.yml` registers every tool name twice and fails at the loader.
 
-**CLI / any other profile**:
+### Upgrade and uninstall
 
 ```bash
-dsh plugin --profile <profile> add /absolute/path/to/dsh-android-emulator-helper
+dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper@latest   # upgrade
+dsh plugin --profile <profile> remove @zhz8888/dsh-android-emulator-helper      # uninstall
 ```
 
-`dsh.bundle.patch` is declared, so DSH reconciles the package into
-`dsh.profile.bundles` and merges `cordis.patch.yml` at boot. Do **not** also add
-the same row to the profile's own `cordis.patch.yml`: a double mount registers
-every tool name twice and fails the load.
+Settings live in the profile, not in the package, so both commands leave them in place. The data directory (by default `$DSH_HOME/android-emulator-helper`, then `~/.dsh/android-emulator-helper`) holds screenshots and build logs; it is yours to delete, and uninstalling does not touch it.
 
-### 3. Open the settings page
+### Version gate
 
-After a restart or hot reload, open **Settings → Android emulator**. The page
-appears only while the host half actually serves the settings namespace, and
-leaves no trace when it does not.
+The DSH compatibility range is **`>=0.2.0-rc.2`, a lower bound only**, declared identically in `peerDependencies`, `engines.dsh` and `dsh.compatibility.dsh`: a runtime below it is refused at install time, and no future harness release is excluded.
 
-### The DSH version gate
-
-The DSH requirement is **`>=0.2.0-rc.2`, a lower bound only**, declared
-identically in `peerDependencies`, `engines.dsh` and `dsh.compatibility.dsh`, so
-a runtime below it is refused at install time and no future harness release is
-excluded. `dsh.compatibility.dshReleases` records the release this plugin was
-actually exercised against.
-
-An upper bound would have to be widened on every harness bump, and a `^` range
-silently drops the prereleases of the next version tuple. Only the peer range is
-enforced — `dsh plugin add` resolves the `@deepseek-ai/dsh*` peers, while the
-harness reads neither `engines.dsh` nor `dsh.compatibility` today — so
-`test/manifest.test.js` compares the three copies rather than leaving the claim
-to trust.
-
-One node-semver detail survives: a **new tuple's** prerelease such as
-`0.2.1-alpha.1` is not admitted by npm's and pnpm's default rules, so that
-install fails until either the range gains a branch for the tuple
-(`">=0.2.0-rc.2 <0.2.1-0 || >=0.2.1-0"`) or the peer check is skipped:
+One node-semver detail survives — a **new tuple's** prerelease such as `0.2.1-alpha.1` is not admitted by npm's and pnpm's default rules, so that install fails until either the range gains a branch for the tuple (`">=0.2.0-rc.2 <0.2.1-0 || >=0.2.1-0"`) or the peer check is skipped:
 
 ```bash
 dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
   --config.strict-peer-dependencies=false
 ```
 
-Stable releases (`0.2.0`, `0.2.1`, `0.3.0`, `1.0.0`, …) are unaffected and always
-admitted.
+Stable releases (`0.2.0`, `0.2.1`, `0.3.0`, `1.0.0`, …) are unaffected and always admitted.
 
 ## Settings page
 
-The settings namespace is the profile patch row id, `android-emulator-helper`.
-The page reads and writes through `ctx.configForms`, so staged edits, dirty
-detection, inline validation, optimistic-concurrency revisions and
-"overridden / reset to default" all come from the harness. It draws its own
-title and one card per group — the card outline is what separates the
-categories — and the save lives in a sticky action bar at the bottom that
-appears only while there is something to act on: a staged edit, a write in
-flight, or a failure worth retrying.
+The settings namespace equals the profile patch row id equals `android-emulator-helper` (also `dsh.name`). The page reads and writes through `ctx.configForms`, so staged edits, dirty detection, inline validation, optimistic concurrency (revisions) and "overridden / reset to default" all come from the harness. It draws its own title, one card per category — the card outline is what separates them — and saves from a sticky action bar at the bottom that appears only while there is something to act on: a staged edit, a write in flight, or a failure worth retrying.
 
-| Group | Field | Kind | Default |
-|---|---|---|---|
-| SDK and toolchain | `sdkPath` | text | empty (auto-detect) |
-| | `jdkMajor` | text, suggestions from this machine | `17` |
-| | `buildToolsVersion` | text, suggestions | `35.0.0` |
-| Emulator and devices | `defaultAvd` | text, suggestions | `medium_phone` |
-| | `defaultSerial` | text, suggestions | empty |
-| | `autoStartEmulator` | switch | on |
-| | `emulatorArgs` | multiline, one argument per line | empty |
-| | `bootTimeoutSeconds` | integer | `180` |
-| API and system image | `apiLevel` | text, suggestions | `35` |
-| | `systemImageVariant` | select | `default` |
-| | `systemImageAbi` | select (empty = host architecture) | auto |
-| | `minSdk` | integer | `23` |
-| Build | `buildTimeoutSeconds` | integer | `600` |
-| | `gradleExtraArgs` | multiline | empty |
-| Output and logs | `dataDir` | text | `$DSH_HOME/android-emulator-helper` |
-| | `screenshotDir` | text | `<data dir>/screenshots` |
-| | `logTailLines` | integer | `500` |
+| Group | Field | Kind | Default | Legacy env fallback |
+|---|---|---|---|---|
+| SDK and toolchain | `sdkPath` | text | empty (auto-detect) | `ANDROID_PLUGIN_SDK_PATH` |
+| | `jdkMajor` | text, suggestions from this machine | `17` | `ANDROID_PLUGIN_JDK_MAJOR` |
+| | `buildToolsVersion` | text, suggestions | `35.0.0` | `ANDROID_PLUGIN_BUILD_TOOLS_VERSION` |
+| Emulator and devices | `defaultAvd` | text, suggestions | `medium_phone` | `ANDROID_PLUGIN_DEFAULT_AVD` |
+| | `defaultSerial` | text, suggestions | empty | — |
+| | `autoStartEmulator` | switch | on | — |
+| | `emulatorArgs` | multiline, one argument per line | empty | — |
+| | `bootTimeoutSeconds` | integer | `180` | — |
+| API and system image | `apiLevel` | text, suggestions | `35` | `ANDROID_PLUGIN_API_LEVEL` |
+| | `systemImageVariant` | select | `default` | `ANDROID_PLUGIN_SYSTEM_IMAGE_VARIANT` |
+| | `systemImageAbi` | select (empty = host architecture) | auto | `ANDROID_PLUGIN_SYSTEM_IMAGE_ABI` |
+| | `minSdk` | integer | `23` | — |
+| Build | `buildTimeoutSeconds` | integer | `600` | — |
+| | `gradleExtraArgs` | multiline | empty | — |
+| Output and logs | `dataDir` | text | `$DSH_HOME/android-emulator-helper` | — |
+| | `screenshotDir` | text | `<data dir>/screenshots` | — |
+| | `logTailLines` | integer | `500` | — |
 
 Two buttons back the page with exact Fetch routes on the host half:
 
-- **Run diagnostic** → `GET /api/android-emulator-helper/status`, the same
-  checks as `android_preflight`, each with its detail and fix hint.
-- **Refresh devices and AVDs** → `GET /api/android-emulator-helper/inventory`,
-  detecting the SDK root, AVDs, connected devices, installed JDKs, system
-  images, platforms and build-tools to populate the fields' suggestions.
+- **Run diagnostic** → `GET /api/android-emulator-helper/status`, the same checks as `android_preflight`, each with its detail and fix hint.
+- **Refresh devices and AVDs** → `GET /api/android-emulator-helper/inventory`, detecting the SDK root, AVDs, connected devices, installed JDKs, system images, platforms and build-tools to populate the fields' suggestions.
 
-The seven fields the original plugin exposed still fall back to their
-`ANDROID_PLUGIN_*` environment variables, so an existing ZCode or CI setup keeps
-working: the resolution order is settings page → environment variable →
-declared default.
+### Legacy configuration
+
+The original plugin's `userConfig` — the seven variables in the last column above — still works as a fallback (last column above), so an existing ZCode or CI setup needs no change: the resolution order is settings page → environment variable → declared default. The original also read `ANDROID_PLUGIN_DATA` for its data directory; here that directory is the page's `dataDir` field.
 
 ## Screenshots
 
@@ -175,183 +160,74 @@ the repository, which is how a plugin market finds them.
 
 ## Tools
 
-`android_preflight`, `android_discover_project`, `android_create_app`,
-`android_build_app`, `android_build_and_run`, `android_list_devices`,
-`android_list_avds`, `android_start_emulator`, `android_stop_emulator`,
-`android_create_avd`, `android_install_app`, `android_launch_app`,
-`android_terminate_app`, `android_open_url`, `android_screenshot`,
-`android_logs`, `android_ui_status`, `android_ui_describe`, `android_ui_resolve`,
-`android_ui_tap`, `android_ui_swipe`, `android_ui_type_text`,
-`android_ui_keyevent` — identical names and arguments to the original MCP
-server.
+23 tools, identical names and arguments to the original MCP server.
 
-`android_screenshot` always writes the PNG to disk and additionally submits it
-to the host attachment store for a canonical image block. When the current model
-does not declare image input, or the deployment stores no attachments, the
-result degrades to text plus the file path rather than failing the call.
+| Tool | Purpose |
+|---|---|
+| `android_preflight` | Check the SDK, `adb`, `emulator`, AVDs, Java, the Gradle project state and the UI backend, and echo the current settings. |
+| `android_discover_project` | Find Gradle roots, modules, variants, application ids, manifests and APK outputs. |
+| `android_create_app` | Generate a minimal Kotlin + Jetpack Compose project. |
+| `android_build_app` | Build one module and variant with Gradle. |
+| `android_build_and_run` | Build → reuse or start a device → install → launch. |
+| `android_list_devices` / `android_list_avds` | List the devices adb sees / the AVDs on this machine. |
+| `android_start_emulator` / `android_stop_emulator` | Start a new GUI emulator / stop one by serial. |
+| `android_create_avd` | Create an AVD with `avdmanager`. |
+| `android_install_app` / `android_launch_app` / `android_terminate_app` | Install an APK / launch by application id / force-stop. |
+| `android_open_url` | Open a URL on the device. |
+| `android_screenshot` | Capture a PNG to disk, and return it as an image when the model accepts image input. |
+| `android_logs` | Read the logcat tail, optionally filtered by application id. |
+| `android_ui_status` | Report what UI automation is available. |
+| `android_ui_describe` / `android_ui_resolve` | The UI Automator element tree / resolve a text, description, resource id or class to coordinates. |
+| `android_ui_tap` / `android_ui_swipe` / `android_ui_type_text` / `android_ui_keyevent` | adb-backed tap, swipe, typing and key events. |
 
-## Skill and command
+`android_screenshot` deserves its own note: it always writes the PNG to disk
+(under `<data dir>/screenshots/` by default) and additionally submits it to the
+host's attachment service for a canonical image block. When the current model
+declares no image input, or the deployment stores no attachments, the result
+degrades to text plus the file path instead of failing the call.
 
-- The bundled `android-dev` skill is registered through `ctx.skills.register()`
-  with the skill directory as its `resourceBase`, so `INSTALL_ENVIRONMENT.md`
-  keeps resolving. Its text is rewritten for DSH: no `mcp__…` prefixes,
-  environment setup points at the settings page.
-- `/android-dev [goal]` runs the diagnostic and reports the verdict, failures
-  and fixes. DSH user commands deliberately create no model message, so the
-  command does the one useful thing that needs no model.
+## Skill and slash command
+
+- **`android-dev` skill** — shipped in `skills/android-dev/` and registered by the host half through `ctx.skills.register()` as an embedded skill with the skill directory as its `resourceBase`, so `INSTALL_ENVIRONMENT.md` keeps resolving. Rewritten for DSH: no `mcp__…` prefix, and environment configuration points at the settings page rather than at environment variables.
+- **`/android-dev [goal]` command** — registered through `ctx.commands.register()`. DSH user commands deliberately never create a model message, so this command does the one thing that is useful without the model: it runs the environment diagnostic and prints the verdict, the failing checks and their fixes.
 
 ## Differences from the original
 
-| | Original (ZCode) | This port (DSH) |
+| Aspect | Original (ZCode) | This plugin (DSH) |
 |---|---|---|
-| Tool exposure | stdio MCP server, `mcp__android_emulator__*` | native `ctx.tools.register()`, `android_*` |
-| Configuration | `plugin.json` `userConfig` via `ANDROID_PLUGIN_*` | settings page + volatile `Config`; env vars still fall back |
-| Working directory | `process.cwd()` | `exec.agent.session.header.cwd` (session workspace) |
-| Data directory | `ANDROID_PLUGIN_DATA` / temp | `$DSH_HOME/android-emulator-helper`, configurable |
-| Screenshot | MCP image content (base64) | host attachment reference; text fallback |
-| Slash command | injects a model prompt | runs the diagnostic directly |
-| Process execution | direct `node:child_process` | unchanged |
+| Tool exposure | stdio MCP server `android-emulator`; the model sees `mcp__android_emulator__*` | Native `ctx.tools.register()`; the model sees `android_*` |
+| User configuration | `plugin.json` `userConfig` (7 items), injected as environment variables | Settings page with 17 fields on a schemastery `Config`, all `.volatile()`; the old environment variables remain as fallbacks |
+| Working directory | `process.cwd()` | `exec.agent.session.header.cwd` (the session workspace) |
+| Data directory | `ANDROID_PLUGIN_DATA` / temp | `$DSH_HOME/android-emulator-helper`, configurable on the settings page |
+| Screenshot result | MCP image content (base64) | An image block built from a host attachment reference, degraded to text plus a disk path on refusal |
+| Result normalisation | Providers return objects containing `undefined` | Every result passes through `toLosslessJson()` (the registry rejects `undefined`) |
+| Slash command | Injects a prompt into the model's conversation | Runs the diagnostic and prints the verdict |
+| Process invocation | `node:child_process` spawn | Unchanged |
 
-The direct `spawn` is a deliberate trade-off: `gradlew`, `adb` and `emulator`
-behave byte-for-byte as they did in the original, and `adb exec-out` needs no
-binary-stream adapter. The cost is bypassing DSH's subprocess seam — no managed
-process ranges, env scrubbing, output spill or teardown termination. Every call
-here has an explicit timeout and `SIGTERM`, and the plugin reads and forwards no
-credential-bearing environment variables.
-
-## Architecture
-
-```
-dsh-android-emulator-helper/
-├── package.json            # dsh.bundle.patch, dsh.client, peer dependencies (the compatibility gate)
-├── cordis.patch.yml        # - insert: [{ id: android-emulator-helper, name: '@zhz8888/dsh-android-emulator-helper' }]
-├── android-emulator.png    # plugin icon: ZCode's artwork, pale tile keyed out, 192 px
-├── screenshots.json        # the four preview images a plugin market shows, in scroll order
-├── locale/en.json          # plugin-page name and description (English; its presence is what enables every other language)
-├── locale/zh.json          # the Simplified Chinese pair
-├── lib/
-│   ├── index.js            # host half: tools, skill, command and the two Fetch routes
-│   ├── client.js           # browser half: a hand-written __ModuleLoader__ bundle, the settings page
-│   ├── settings.js         # field declarations, the schemastery Config (every field .volatile()), live reads
-│   ├── runtime.js          # one runtime per call: session cwd + live settings → data directory
-│   ├── tools/index.js      # the 23 defineTool definitions, argument/result schemas, image admission
-│   ├── providers/          # ported from the original plugin file by file, now taking an explicit runtime
-│   └── util/               # process execution, paths, content blocks
-├── skills/android-dev/     # SKILL.md + INSTALL_ENVIRONMENT.md
-├── scripts/                # check-bundle.mjs (consistency gate), smoke.mjs (real-machine), verify-mount.mjs
-├── assets/                 # the four settings-page screenshots `screenshots.json` names
-└── test/                   # node:test unit and integration suites
-```
-
-Three constraints shape everything above:
-
-1. **The settings namespace has exactly one source of truth**: the profile patch
-   row id. The `id` in `cordis.patch.yml`, `SETTINGS_NAMESPACE` in
-   `lib/settings.js` and the literal in `lib/client.js` must agree;
-   `scripts/check-bundle.mjs` verifies them, and also that the host and client
-   field tables have not drifted apart.
-2. **A browser bundle cannot import a host module** — the client purity gate
-   forbids cross-plugin value imports — so the field table is written twice and
-   held together by that gate. The bundle may `require` only the shell's nine
-   static modules (React, Cordis, `dsh-client-store`, `dsh-client-ui-slots`,
-   `dsh-client-ui-primitives`, `dsh-client-ui-dockkit`, …).
-3. **The plugin-page name is a package resource, not a manifest field**: DSH
-   resolves `<package>/locale/en.json` through the `exports` map, so
-   `./locale/*.json` has to stay exported and `locale` has to stay in `files`;
-   either omission degrades silently to showing the raw package name. `en.json`
-   is also the switch that enables every other language file, so it cannot be
-   dropped in favour of `zh.json`. `test/manifest.test.js` pins all three
-   conditions, and `scripts/check-bundle.mjs` compares that name with the heading
-   and nav label the bundle draws, in both languages, so the plugin list and the
-   settings page cannot end up calling the same plugin two different things.
-
-## Development
-
-```bash
-pnpm install                 # the @deepseek-ai/* peers plus react/react-dom for the tests
-pnpm test                    # 151 tests, no Android SDK needed
-pnpm run check               # tests + host/client gate + real-Cordis mount
-pnpm run verify:mount        # real Cordis Context and real ToolRuntime
-pnpm run smoke               # read-only real-machine probes
-pnpm run smoke:emulator      # also boot an AVD, screenshot, logs, stop
-pnpm run link:dsh-deps       # offline dev: symlink a local DSH's @deepseek-ai packages
-```
-
-The package manager is pnpm: `packageManager` pins `pnpm@11.8.0`, and
-`pnpm-lock.yaml` is the only lockfile (npm's `package-lock.json` is gone).
-[`pnpm-workspace.yaml`](pnpm-workspace.yaml) does not open a workspace — this is a
-single-package repository — it only carries the install-script policy:
-`strictDepBuilds: true`. pnpm v10+ skips a dependency's build scripts *silently*
-by default, which is the wrong failure mode here, so the strict mode makes
-`pnpm install` fail immediately with `ERR_PNPM_IGNORED_BUILDS` and forces an
-explicit per-package decision. The current tree (27 packages) was scanned and
-contains no install-time build scripts, so no `allowBuilds` entry is needed.
-
-Four layers of verification:
-
-| Layer | Command | What it proves |
-|---|---|---|
-| Unit and parsers | `pnpm test` | Bundle load contract, manifest/patch contract, settings projection (live volatile reads, env fallback, out-of-range fallback), every ported parser, and the lossless-JSON projection |
-| Settings page render | `pnpm test` | The whole page rendered with real React and `react-dom/server`: every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, override badge and reset, both route buttons, and no action bar while nothing is staged |
-| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
-| Route integration | `test/routes-integration.test.js` | The two settings routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 17 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing both routes |
-| Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, **all 23 dispatched through the registry** and validated against their argument and result schemas, malformed arguments refused, unknown names unresolved, 17 volatile fields, full unregistration on dispose |
-| Real device | `pnpm run smoke` … | What only a machine with an SDK, an emulator and Gradle can prove: discovery, boot and teardown, screenshots, logcat, UI automation, and a real `android_create_app` → build → install → launch cycle |
-
-### Registry constraints that shape the tools
-
-Two constraints come from the real tool registry and cannot be seen through a
-hand-written test double:
-
-- A result must match the tool's declared `output.schema`, so the two listing
-  tools return `{ devices: [...] }` and `{ avds: [...] }` rather than a bare
-  array, which the registry rejects as invalid output.
-- A result must be lossless JSON, and the registry's snapshot rejects
-  `undefined` outright. Every ported provider models an absent field as
-  `undefined` — a device without a `model`, a UI node without `bounds`, a
-  discovery report with no Gradle root — so `toLosslessJson()` normalizes the
-  value on the single path every tool result travels, instead of 23 providers
-  each handling it.
+The direct spawn is a deliberate trade-off: `gradlew`, `adb` and `emulator` behave byte-for-byte as they did in the original, and `adb exec-out` needs no binary-stream adapter; the cost is bypassing DSH's subprocess seam, so every call carries its own timeout and `SIGTERM` instead. The plugin reads and forwards no credential-bearing environment variables.
 
 ## Known limitations
 
-- Linux is unsupported, exactly as in the original; `android_preflight` reports
-  it.
-- `android_start_emulator` always starts a new emulator and never reuses one.
-  Pass `serial` to the other tools to reuse a target.
-- `android_create_avd` always answers `no` to `avdmanager`'s confirmation, so it
-  can never silently trigger a multi-gigabyte image download.
-- The settings page's installed-image list comes from scanning the SDK
-  directory, not from `sdkmanager --list_installed`, which fails in restricted
-  environments and prefixes its output with deprecation notices.
-- The settings page's two routes are served by the plugin and are mounted in a
-  real profile, but their HTTP responses cannot be exercised outside the GUI:
-  the desktop app authenticates every request, so a bare `curl` to
-  `/api/android-emulator-helper/status` answers `403 forbidden` before the
-  handler runs. `test/routes-integration.test.js` therefore invokes the handlers
-  directly on a real Cordis context instead. The page's spacing, dark theme and
-  narrow-width wrapping still deserve a human look in the GUI.
-- `@deepseek-ai/dsh-client-ui-primitives` publishes only `0.0.1-rc.1` on npm,
-  which does not match the runtime API, so the render test uses a faithful double
-  for the primitives while React and `react-dom/server` stay real.
+- **Linux is unsupported**, exactly as in the original; `android_preflight` reports it.
+- `android_start_emulator` always starts a new emulator and never reuses one. Pass `serial` to the other tools to reuse a target.
+- `android_create_avd` always answers `no` to `avdmanager`'s confirmation, so it can never silently trigger a multi-gigabyte image download; install the image with `sdkmanager` first.
+- UI automation depends on the device-side `uiautomator`. When it is unavailable `android_ui_status` reports that, and the build, run and screenshot paths are unaffected.
+- The settings page's installed-image list comes from scanning the SDK directory, not from `sdkmanager --list_installed`, which fails in restricted environments and prefixes its output with deprecation notices.
+- The settings page's two routes are served by the plugin and are mounted in a real profile, but their HTTP responses cannot be exercised outside the GUI: the desktop app authenticates every request, so a bare `curl` to `/api/android-emulator-helper/status` answers `403 forbidden` before the handler runs. The page's spacing, dark theme and narrow-width wrapping still deserve a human look in the GUI.
+- No credential handling: the plugin never reads or forwards key/token/secret environment variables.
 
 ## Releases
 
-| Version | Highlights |
-|---|---|
-| **1.1.0** | Settings page rebuilt around cards with a sticky action bar; both timeouts asked for in seconds; eight defects fixed, among them a generated project that did not compile, `android_ui_type_text` corrupting every `%` into `%25`, `android_ui_describe` serving the previous screen after a failed dump, and `android_start_emulator` silently starting a different AVD than the one requested. All 23 tools were exercised on a real emulator. |
-| 1.0.0 | First release: the 23 native `android_*` tools, the embedded `android-dev` skill and the `/android-dev` command, and the settings page. |
+Every release is one commit in two places: tagged `vX.Y.Z` on `main` and published to npm from that tag, whose SHA npm records as `gitHead`. The list is at [Releases](https://github.com/zhz8888/dsh-android-emulator-helper/releases) — [`v1.1.0`](https://github.com/zhz8888/dsh-android-emulator-helper/releases/tag/v1.1.0) is the latest, after [`v1.0.0`](https://github.com/zhz8888/dsh-android-emulator-helper/releases/tag/v1.0.0), both dated 2026-10-17.
 
-**Restart the DSH host process after upgrading.** The package is mounted as a
-`link:` symlink and Node caches ESM modules for the life of the process, so a
-change under `lib/` does not take effect until the host restarts — until then the
-tools keep serving the old code.
+**Restart the DSH host process after upgrading.** The package is mounted as a `link:` symlink and Node caches ESM modules for the life of the process, so a change under `lib/` does not take effect until the host restarts — until then the tools keep serving the old code.
+
+## Contributing
+
+Issues and pull requests are welcome at [github.com/zhz8888/dsh-android-emulator-helper](https://github.com/zhz8888/dsh-android-emulator-helper/issues). Every change has to keep `pnpm check` green — unit tests, a host/client consistency gate and a mount on a real Cordis host — and there is no CLA or form to fill in: a focused pull request that says what it changes and why is enough.
+
+The package is shaped for the [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) market. Development conventions — commands, repository map, invariants, testing, commit and release rules — live in [AGENTS.md](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/AGENTS.md).
 
 ## License
 
-[MIT](LICENSE), copyright (c) 2026 zhz8888.
-
-Tools and provider logic are ported from the ZCode official `android-emulator`
-plugin (also MIT, copyright Z.ai); the Kotlin/Compose project template files are
-kept verbatim. See the note at the end of [LICENSE](LICENSE) for the full
-provenance.
+[MIT](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/LICENSE), copyright (c) 2026 zhz8888. Tool definitions, provider logic and the generated Kotlin/Compose project template are ported from the ZCode official `android-emulator` plugin, distributed under the MIT License by Z.ai; the template sources are kept verbatim. See the attribution at the end of [LICENSE](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/LICENSE).
