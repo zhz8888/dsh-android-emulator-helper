@@ -202,7 +202,7 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 
 ## 版本与发布
 
-每次发布都是同一个提交出现在两处：在 `main` 上打 `vX.Y.Z` 轻量 tag，并从该 tag 发布到 npm，npm 记录的 `gitHead` 就是它的 SHA。完整列表见 [Releases](https://github.com/zhz8888/dsh-android-emulator-helper/releases)——最新是 [`v1.1.0`](https://github.com/zhz8888/dsh-android-emulator-helper/releases/tag/v1.1.0)，之前是 [`v1.0.0`](https://github.com/zhz8888/dsh-android-emulator-helper/releases/tag/v1.0.0)，两个都发布于 2026-10-17。
+每次发布都是同一个提交出现在两处：在 `main` 上打 `vX.Y.Z` 轻量 tag，并从该 tag 发布到 npm，npm 记录的 `gitHead` 就是它的 SHA。完整列表见 [Releases](https://github.com/zhz8888/dsh-android-emulator-helper/releases)——最新是 [`v1.1.1`](https://github.com/zhz8888/dsh-android-emulator-helper/releases/tag/v1.1.1)，之前是 [`v1.1.0`](https://github.com/zhz8888/dsh-android-emulator-helper/releases/tag/v1.1.0) 与 [`v1.0.0`](https://github.com/zhz8888/dsh-android-emulator-helper/releases/tag/v1.0.0)。
 
 **升级后请重启 DSH 宿主进程。** 本包以 `link:` 软链挂载，Node 对 ESM 做进程级缓存，`lib/` 的改动在宿主重启前不会生效——否则工具仍会跑旧代码。
 
