@@ -190,6 +190,27 @@ tarball — `files` stays as it is and the market fetches them from the reposito
 This is the single exception to "never commit run artifacts". A capture that is
 not one of the four stays out of the repository like every other run artifact.
 
+The four are currency, not history: a change to the page's layout, or to any
+label inside a shot, means all four are re-captured before the next release, and
+the sentence in both READMEs that dates them is updated with them. Nothing fails
+if they rot — the market simply shows a page that no longer exists.
+
+## The settings page's rhythm is deliberate
+
+Each field carries 7px above and below, so two of them sit 14px apart; a card is
+`12px 16px` with no bottom padding on its last field; cards sit 16px apart. The
+field and card-to-card steps are the sibling ios-simulator plugin's, so the two
+settings pages read the same; only the card's closing padding is this page's own,
+larger than that page's because the closing here is a hint rather than a
+control. Tune any of it and the page either sprawls or cramps.
+
+Every paragraph must state its own `margin`. The bundle is compiled on its own,
+so it cannot rely on a bare-element reset from wherever it is mounted, and the
+UA's `p { margin: 1em 0 }` otherwise shows through: 24px per hint, 448px of page
+height on its own, and a gap between a control and the hint that describes it
+which no amount of tightening the surrounding boxes could hide. A new `<p>` rule
+that forgets this is invisible in review and obvious on screen.
+
 ## The two READMEs are mirrors, and their links are relative
 
 `README.md` and `README.zh-CN.md` carry the same headings in the same order,
