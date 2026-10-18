@@ -180,7 +180,7 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 dsh-android-emulator-helper/
 ├── package.json            # dsh.bundle.patch、dsh.client、peer 依赖（兼容性闸门）
 ├── cordis.patch.yml        # - insert: [{ id: android-emulator-helper, name: '@zhz8888/dsh-android-emulator-helper' }]
-├── icon.svg                # 插件图标：Android 机器人头部，品牌绿，明暗主题下都可辨认
+├── android-emulator.png    # 插件图标：ZCode 那张图去掉了浅绿底色，192 px
 ├── screenshots.json        # 插件市场展示的四张预览图，按页面滚动顺序
 ├── locale/en.json          # 插件页的显示名与描述（英文；它的存在才是其它语言文件生效的开关）
 ├── locale/zh.json          # 简体中文那一份
@@ -208,7 +208,7 @@ dsh-android-emulator-helper/
 
 ```bash
 pnpm install                 # 装官方 peer 包与 react/react-dom（开发与测试用）
-pnpm test                    # 148 个测试（无需 Android SDK）
+pnpm test                    # 151 个测试（无需 Android SDK）
 pnpm run check               # 测试 + host/client 一致性闸门 + 真实 Cordis 挂载验证
 pnpm run verify:mount        # 真实 Cordis Context + 真实 ToolRuntime 注册表
 pnpm run smoke               # 只读真机探测：preflight / AVD / 设备 / 项目发现 / inventory

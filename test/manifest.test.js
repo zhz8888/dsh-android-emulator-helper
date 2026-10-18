@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { decodePng, pixelAt } from './helpers/decode-png.mjs'
 
 /**
  * Contract tests for the package manifest and the Cordis patch.
@@ -37,6 +38,69 @@ function officialImports(...dirs) {
     }
   }
   return found
+}
+
+/**
+ * Find the dark blobs in a decoded icon, eight-connected.
+ *
+ * The Android head draws exactly two dark marks — its eyes — so a blob count
+ * above two means a stray mark was painted in, and an eye that has grown is one
+ * that something merged into. Only pixels that are both opaque enough and dark
+ * enough count, which keeps the antialiased edges out of it; eight-connectivity
+ * then keeps a single borderline pixel on an eye's rim from reading as a mark of
+ * its own.
+ *
+ * @param {{width: number, height: number, data: Buffer}} image - a decoded icon.
+ * @returns {Array<{area: number, width: number, height: number}>} the blobs.
+ */
+function darkBlobs(image) {
+  const { width, height } = image
+  const seen = new Uint8Array(width * height)
+  const isDark = (x, y) => {
+    const { r, g, b, a } = pixelAt(image, x, y)
+    return a >= 128 && 0.299 * r + 0.587 * g + 0.114 * b < 60
+  }
+  const neighbours = [
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+    [-1, 0],
+    [1, 0],
+    [-1, 1],
+    [0, 1],
+    [1, 1],
+  ]
+  const blobs = []
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (seen[y * width + x] || !isDark(x, y)) continue
+      seen[y * width + x] = 1
+      const stack = [[x, y]]
+      let area = 0
+      let minX = x
+      let maxX = x
+      let minY = y
+      let maxY = y
+      while (stack.length > 0) {
+        const [cx, cy] = stack.pop()
+        area += 1
+        if (cx < minX) minX = cx
+        if (cx > maxX) maxX = cx
+        if (cy < minY) minY = cy
+        if (cy > maxY) maxY = cy
+        for (const [dx, dy] of neighbours) {
+          const nx = cx + dx
+          const ny = cy + dy
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue
+          if (seen[ny * width + nx] || !isDark(nx, ny)) continue
+          seen[ny * width + nx] = 1
+          stack.push([nx, ny])
+        }
+      }
+      blobs.push({ area, width: maxX - minX + 1, height: maxY - minY + 1 })
+    }
+  }
+  return blobs
 }
 
 test('package name is the client module id', () => {
@@ -168,6 +232,81 @@ test('the files whitelist covers every path the manifest points at', () => {
     const top = relative.replace(/^\.\//, '').split('/')[0]
     assert.ok(manifest.files.includes(top), `${relative} is not covered by files`)
   }
+})
+
+test('the icon is a PNG the plugin loader admits', () => {
+  // The icon is the one asset a plugin list renders verbatim. `dsh-app-boot`
+  // admits SVG, PNG, JPEG and WebP only, resolves the path inside the manifest
+  // directory, and refuses anything over 256 KiB — so the format, the square
+  // frame and the size budget are all part of the contract.
+  assert.equal(manifest.icon, './android-emulator.png')
+  const file = path.join(ROOT, 'android-emulator.png')
+  assert.ok(existsSync(file), 'the icon the manifest names must exist')
+  const bytes = readFileSync(file)
+  assert.deepEqual(
+    [...bytes.subarray(0, 8)],
+    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    'the icon must be a PNG',
+  )
+  const width = bytes.readUInt32BE(16)
+  const height = bytes.readUInt32BE(20)
+  assert.equal(width, height, 'a plugin icon renders in a square seat')
+  assert.ok(width >= 128, `too small to stay sharp once a list scales it up: ${width}`)
+  assert.ok(bytes.length <= 256 * 1024, 'dsh-app-boot refuses an icon over 256 KiB')
+  assert.ok(!existsSync(path.join(ROOT, 'icon.svg')), 'the superseded SVG must be removed')
+})
+
+test('the icon keys the artwork tile out without leaving a rim', () => {
+  // The upstream artwork sits on a flat #EDF6E9 tile, which reads as a
+  // washed-out square in a dark list, so the tile is keyed out here. The key has
+  // to stay clean: removing a flat background without carrying the edge colours
+  // outwards leaves a rim of half-blended background pixels — invisible on a
+  // white page and glaring on the dark theme. So the alpha channel, the
+  // transparent corners and the absence of any near-background pixel are all
+  // pinned, and the last of the three is why this test decodes the sprite
+  // instead of reading its header.
+  const image = decodePng(readFileSync(path.join(ROOT, 'android-emulator.png')))
+  assert.equal(image.width, 192)
+  assert.equal(image.height, 192)
+  for (const [x, y] of [
+    [0, 0],
+    [image.width - 1, 0],
+    [0, image.height - 1],
+    [image.width - 1, image.height - 1],
+  ]) {
+    assert.equal(pixelAt(image, x, y).a, 0, `the corner at ${x},${y} must be transparent`)
+  }
+  // A pixel under 5% coverage cannot read as a rim whatever colour it carries,
+  // so only the visible part of the edge is held to the head's own palette. The
+  // head's brightest pixel sits near 150; the keyed-out tile was 245.
+  let palest = 0
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      const { r, g, b, a } = pixelAt(image, x, y)
+      if (a < 13) continue
+      palest = Math.max(palest, 0.299 * r + 0.587 * g + 0.114 * b)
+    }
+  }
+  assert.ok(palest < 200, `a half-transparent pixel is as pale as the keyed-out tile: ${palest.toFixed(0)}`)
+})
+
+test('the icon keeps exactly the two eyes the artwork draws', () => {
+  // Carrying the edge colours outwards must not grow the *darkest* pixels: an
+  // edge extension applied blindly paints black crescents beside the eyes, which
+  // reads as a pair of eyebrows. The head draws exactly two dark marks, they are
+  // round, and they are the same size because they are mirror images of each
+  // other — so a stray crescent (a third blob) or a crescent merged into an eye
+  // (one blob distinctly larger) both fail here.
+  const blobs = darkBlobs(decodePng(readFileSync(path.join(ROOT, 'android-emulator.png')))).sort(
+    (left, right) => right.area - left.area,
+  )
+  assert.equal(blobs.length, 2, `expected the two eyes, saw ${blobs.length} dark blobs`)
+  for (const blob of blobs) {
+    const aspect = Math.max(blob.width, blob.height) / Math.min(blob.width, blob.height)
+    assert.ok(aspect < 1.4, `an eye of ${blob.width}x${blob.height} is not round`)
+  }
+  const [larger, smaller] = blobs
+  assert.ok(larger.area / smaller.area < 1.2, `the eyes differ in size: ${larger.area} vs ${smaller.area}`)
 })
 
 test('the screenshot manifest lists 1-8 images that exist inside the repo', () => {

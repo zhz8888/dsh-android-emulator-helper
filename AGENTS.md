@@ -114,6 +114,7 @@ them against the source. Keep these honest, and re-derive them after a change:
 - the settings table (key, kind, default, group) against `lib/settings.js`,
 - the two route paths against `lib/index.js`,
 - the DSH range against the three places that declare it,
+- the icon against the format and size `dsh-app-boot` admits,
 - the gallery in `screenshots.json` against `assets/` and the two READMEs, and
 - the verification table against the commands that actually exist.
 
@@ -133,6 +134,36 @@ tarball — `files` stays as it is and the market fetches them from the reposito
 
 This is the single exception to "never commit run artifacts". A capture that is
 not one of the four stays out of the repository like every other run artifact.
+
+## The icon is the upstream artwork, not a hand-drawn mark
+
+`android-emulator.png` is the artwork ZCode's own marketplace serves for the
+`android-emulator` plugin it ships
+(`cdn-zcode.z.ai/zcode/official-plugin/assets/android-emulator/icon.png`),
+downscaled to 192 × 192 with its flat `#EDF6E9` tile keyed out: that tile reads
+as a washed-out square in a dark list, while the head is mid-green and carries
+its own contrast on either theme — which is why the superseded `icon.svg` needed
+a `prefers-color-scheme` rule and this does not. The key has to carry the edge
+colours outwards; removing a flat background naively leaves a rim of
+half-blended tile pixels that is invisible on white and glaring on dark.
+Replacing this with another hand-drawn mark is a regression, not a restyle.
+
+The key that produces the file works by flooding the silhouette, filling
+everything outside a core at least six pixels inside it with the nearest core
+colour, and taking alpha from unmixing against that colour. Both shortcuts fail
+visibly: a blunt erode grows the eyes into black crescents, and a colour
+threshold for the core cuts through the head's own shading and leaves flat
+patches.
+
+`dsh-app-boot` resolves `package.json.icon` to a regular file inside the package
+directory, admits SVG, PNG, JPEG and WebP only, caps it at 256 KiB, and inlines
+the bytes as a base64 data URL — so the icon ships in the tarball, unlike the
+gallery. `test/manifest.test.js` pins the PNG signature, the square frame, the
+128 px floor and that cap, then decodes the sprite (`test/helpers/decode-png.mjs`,
+built on `node:zlib`) to confirm the corners are transparent, that no pixel above
+5% coverage is as pale as the keyed-out tile, and that the only two dark marks
+are the eyes, round and equal. A shrunken, re-encoded, naively keyed or
+crescent-painted icon fails the suite instead of shipping.
 
 ## Commit conventions
 

@@ -225,7 +225,7 @@ credential-bearing environment variables.
 dsh-android-emulator-helper/
 ├── package.json            # dsh.bundle.patch, dsh.client, peer dependencies (the compatibility gate)
 ├── cordis.patch.yml        # - insert: [{ id: android-emulator-helper, name: '@zhz8888/dsh-android-emulator-helper' }]
-├── icon.svg                # plugin icon: the Android robot head, brand green, readable in both themes
+├── android-emulator.png    # plugin icon: ZCode's artwork, pale tile keyed out, 192 px
 ├── screenshots.json        # the four preview images a plugin market shows, in scroll order
 ├── locale/en.json          # plugin-page name and description (English; its presence is what enables every other language)
 ├── locale/zh.json          # the Simplified Chinese pair
@@ -269,7 +269,7 @@ Three constraints shape everything above:
 
 ```bash
 pnpm install                 # the @deepseek-ai/* peers plus react/react-dom for the tests
-pnpm test                    # 148 tests, no Android SDK needed
+pnpm test                    # 151 tests, no Android SDK needed
 pnpm run check               # tests + host/client gate + real-Cordis mount
 pnpm run verify:mount        # real Cordis Context and real ToolRuntime
 pnpm run smoke               # read-only real-machine probes
