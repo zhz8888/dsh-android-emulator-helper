@@ -1,9 +1,9 @@
 # dsh-android-emulator-helper
 
-[English](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/README.md) | [简体中文](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/README.zh-CN.md)
+**English** | [简体中文](README.zh-CN.md)
 
 [![npm version](https://img.shields.io/npm/v/@zhz8888/dsh-android-emulator-helper.svg)](https://www.npmjs.com/package/@zhz8888/dsh-android-emulator-helper)
-[![license: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/LICENSE)
+[![license: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![target: DSH](https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2-blue.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
 
 A DeepSeek Harness (DSH) native port of the official ZCode `android-emulator@0.1.0` plugin: all 23 original MCP tools preserved as native DSH tools, plus a full **settings page** (Settings → Android emulator) that edits the SDK, emulator, system-image, build and output parameters in-app instead of through environment variables.
@@ -226,8 +226,8 @@ Every release is one commit in two places: tagged `vX.Y.Z` on `main` and publish
 
 Issues and pull requests are welcome at [github.com/zhz8888/dsh-android-emulator-helper](https://github.com/zhz8888/dsh-android-emulator-helper/issues). Every change has to keep `pnpm check` green — unit tests, a host/client consistency gate and a mount on a real Cordis host — and there is no CLA or form to fill in: a focused pull request that says what it changes and why is enough.
 
-The package is shaped for the [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) market. Development conventions — commands, repository map, invariants, testing, commit and release rules — live in [AGENTS.md](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/AGENTS.md).
+The package is shaped for the [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) market. Development conventions — commands, repository map, invariants, testing, commit and release rules — live in [AGENTS.md](AGENTS.md).
 
 ## License
 
-[MIT](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/LICENSE), copyright (c) 2026 zhz8888. Tool definitions, provider logic and the generated Kotlin/Compose project template are ported from the ZCode official `android-emulator` plugin, distributed under the MIT License by Z.ai; the template sources are kept verbatim. See the attribution at the end of [LICENSE](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/LICENSE).
+[MIT](LICENSE), copyright (c) 2026 zhz8888. Tool definitions, provider logic and the generated Kotlin/Compose project template are ported from the ZCode official `android-emulator` plugin, distributed under the MIT License by Z.ai; the template sources are kept verbatim. See the attribution at the end of [LICENSE](LICENSE).

@@ -1,9 +1,9 @@
 # dsh-android-emulator-helper
 
-[English](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/README.md) | [简体中文](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/README.zh-CN.md)
+[English](README.md) | **简体中文**
 
 [![npm version](https://img.shields.io/npm/v/@zhz8888/dsh-android-emulator-helper.svg)](https://www.npmjs.com/package/@zhz8888/dsh-android-emulator-helper)
-[![license: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/LICENSE)
+[![license: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![target: DSH](https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2-blue.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
 
 把 ZCode 官方 `android-emulator@0.1.0` 插件移植为 **DSH（DeepSeek Harness）原生插件**：原有 23 个 MCP 工具全部保留为 DSH 原生工具，并新增一个完整的 **设置页面**（设置 → Android 模拟器），让 SDK、模拟器、系统镜像、构建与输出目录等参数在应用里配置，而不是靠环境变量。
@@ -210,8 +210,8 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 
 欢迎在 [github.com/zhz8888/dsh-android-emulator-helper](https://github.com/zhz8888/dsh-android-emulator-helper/issues) 提 issue 或 PR。任何改动都必须让 `pnpm check` 保持全绿——单元测试、host/client 一致性闸门、以及在真实 Cordis 宿主上的挂载验证；没有 CLA，也没有需要填的表单：一个说清楚改了什么、为什么改的聚焦 PR 就够了。
 
-本包按 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 市场的形态组织。开发约定——命令、仓库结构、不变式、测试、提交与发布规则——都在 [AGENTS.md](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/AGENTS.md)。
+本包按 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 市场的形态组织。开发约定——命令、仓库结构、不变式、测试、提交与发布规则——都在 [AGENTS.md](AGENTS.md)。
 
 ## 许可
 
-[MIT](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/LICENSE)，版权所有 (c) 2026 zhz8888。工具定义、provider 逻辑与生成的 Kotlin/Compose 工程模板移植自 ZCode 官方 `android-emulator` 插件（同样以 MIT 分发，版权归 Z.ai），模板源文件逐字保留；完整的来源说明见 [LICENSE](https://github.com/zhz8888/dsh-android-emulator-helper/blob/main/LICENSE) 末尾。
+[MIT](LICENSE)，版权所有 (c) 2026 zhz8888。工具定义、provider 逻辑与生成的 Kotlin/Compose 工程模板移植自 ZCode 官方 `android-emulator` 插件（同样以 MIT 分发，版权归 Z.ai），模板源文件逐字保留；完整的来源说明见 [LICENSE](LICENSE) 末尾。

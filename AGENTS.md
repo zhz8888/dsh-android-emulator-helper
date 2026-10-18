@@ -190,6 +190,27 @@ tarball — `files` stays as it is and the market fetches them from the reposito
 This is the single exception to "never commit run artifacts". A capture that is
 not one of the four stays out of the repository like every other run artifact.
 
+## The two READMEs are mirrors, and their links are relative
+
+`README.md` and `README.zh-CN.md` carry the same headings in the same order,
+the same tables and the same counts. A change to one is a change to the other.
+The language switch names the current edition as plain text and links only the
+other one: `**English** | [简体中文](README.zh-CN.md)` in the English edition,
+reversed in the Chinese one. A link to the language you are already reading is
+noise — it reloads the page it sits on and reads as a broken switch.
+
+Repository files are linked relatively in both — `LICENSE`, `AGENTS.md`, the
+other edition. npm resolves a relative README target against `repository.url`
+to `<repo>/blob/HEAD/<path>`, so one link works on GitHub, on the npm package
+page and in a fresh clone, and nothing hardcodes a branch. That recipe needs
+`repository` present and public, and it is observable on published packages:
+express's `[MIT](LICENSE)` and commander's `[简体中文](./Readme_zh-CN.md)`
+both render as `blob/HEAD/...` links on their npm pages today.
+
+Badges, the four screenshots and the `releases/…` / `issues` URLs stay
+absolute: they are not file paths, and a relative one would be rewritten into a
+`blob` URL that does not exist.
+
 ## The icon is the upstream artwork, not a hand-drawn mark
 
 `android-emulator.png` is the artwork ZCode's own marketplace serves for the
