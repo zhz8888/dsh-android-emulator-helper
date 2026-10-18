@@ -42,6 +42,33 @@ A value that only exists on one side is the failure mode this exists to prevent:
 a field with no host node silently stops being persisted, and a heading with no
 client entry renders as a raw key.
 
+The plugin's **name** is duplicated the same way but across a different seam: the
+plugin list reads it from `locale/en.json` and `locale/zh.json`, while the
+settings page draws its own heading and registers its own nav label from the
+bundle's dictionary. `scripts/check-bundle.mjs` compares the two titles per
+language, so a rename has to land in four places — both dictionaries and both
+bundle dictionaries (`lib/client.js`) — and the exported `PAGE_META` exists only
+so that gate can read them. The title is the name a user sees; the nav label is
+the short form the shell renders in the sidebar, and they are deliberately not
+the same string.
+
+## The DSH requirement is one range, declared three times
+
+`>=0.2.0-rc.2`, a lower bound only, is written identically in
+`peerDependencies['@deepseek-ai/dsh-tools']`, `engines.dsh` and
+`dsh.compatibility.dsh`; `dsh.compatibility.dshReleases` names the release the
+plugin was actually exercised against. Only the peer range is enforced — `dsh
+plugin add` resolves the `@deepseek-ai/dsh*` peers, while the harness reads
+neither `engines.dsh` nor `dsh.compatibility` today — so the three copies are
+compared by `test/manifest.test.js` instead of being left to trust.
+
+Never add an upper bound. `^`/`~`/`<` would mean re-releasing this plugin every
+time the harness bumps a major, and a `^` range additionally drops the
+prereleases of the next version tuple, which is what makes pnpm fail an install
+the harness would have allowed. `cordis` and `schemastery` are widened for the
+same reason: the gate reads only the `@deepseek-ai/dsh*` peers, but pnpm still
+resolves every peer.
+
 ## Registry constraints that shape the tools
 
 - The result schema is enforced. List tools therefore return `{ devices: [...] }`
@@ -85,7 +112,8 @@ them against the source. Keep these honest, and re-derive them after a change:
 - the tool count in the READMEs and in `lib/tools/index.js`,
 - the test count printed by `pnpm test`,
 - the settings table (key, kind, default, group) against `lib/settings.js`,
-- the two route paths against `lib/index.js`, and
+- the two route paths against `lib/index.js`,
+- the DSH range against the three places that declare it, and
 - the verification table against the commands that actually exist.
 
 ## Commit conventions
@@ -164,6 +192,8 @@ behaviour and will report the bugs this version fixed.
 
 - Add a runtime dependency. The harness provides the `@deepseek-ai/*` peers, and
   a second copy of one is a bug; they stay in `peerDependencies`.
+- Put an upper bound on a `@deepseek-ai/*` range, or declare the DSH requirement
+  in fewer than all three places.
 - Let a settings field, group, label or hint exist on one side of the plugin
   only, or change the namespace without changing all four places (manifest,
   patch row, host, client).

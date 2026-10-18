@@ -34,7 +34,7 @@ if (registration.id !== manifest.name) {
 if (!Array.isArray(exported.inject) || exported.inject.length === 0) {
   fail('the client bundle must export a non-empty inject list')
 }
-for (const name of ['apply', 'inject', 'NS', 'FIELD_META']) {
+for (const name of ['apply', 'inject', 'NS', 'FIELD_META', 'PAGE_META']) {
   if (exported[name] === undefined) fail(`the client bundle must export ${name}`)
 }
 
@@ -144,6 +144,25 @@ for (const name of ['en', 'zh']) {
   }
   if (typeof localeFiles[name].meta?.description !== 'string' || localeFiles[name].meta.description.length === 0) {
     fail(`locale/${name}.json must declare meta.description`)
+  }
+}
+// The plugin list reads the name from `locale/*.json`; the settings page draws
+// its own heading and registers its own nav label from the bundle. Renaming one
+// without the other leaves one plugin called two different things in the same
+// window, which is the drift this gate is for.
+const pageMeta = exported.PAGE_META
+if (pageMeta === undefined) fail('the client bundle must export PAGE_META')
+else {
+  for (const name of ['en', 'zh']) {
+    const declared = localeFiles[name].meta?.title
+    if (pageMeta[name]?.title !== declared) {
+      fail(
+        `the ${name} plugin name differs\n  locale/${name}.json: ${JSON.stringify(declared)}\n  lib/client.js:     ${JSON.stringify(pageMeta[name]?.title)}`,
+      )
+    }
+    if (typeof pageMeta[name]?.nav !== 'string' || pageMeta[name].nav.length === 0) {
+      fail(`lib/client.js must declare a non-empty ${name} nav label`)
+    }
   }
 }
 

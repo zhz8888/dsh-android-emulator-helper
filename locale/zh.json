@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Android 模拟器",
-    "description": "在 DeepSeek Harness 里管理 Android SDK、模拟器与设备：23 个原生 android_* 工具覆盖 SDK 探测、AVD 与模拟器生命周期、Kotlin/Compose 工程脚手架、Gradle 构建运行、安装启动、截图、logcat 与 UI 自动化，并提供设置页配置 SDK、模拟器与构建参数。"
+    "title": "Android 模拟器助手",
+    "description": "非官方助手：在 DeepSeek Harness 里驱动 Google 的 Android 模拟器，23 个原生 android_* 工具覆盖 SDK 探测、AVD 与模拟器生命周期、Kotlin/Compose 工程脚手架、Gradle 构建运行、安装启动、截图、logcat 与 UI 自动化，并提供设置页配置 SDK、模拟器与构建参数。与 Google 无隶属关系。"
   }
 }

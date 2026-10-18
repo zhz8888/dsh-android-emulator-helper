@@ -57,6 +57,12 @@
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-settings"
       ]
+    },
+    "compatibility": {
+      "dsh": ">=0.2.0-rc.2",
+      "dshReleases": {
+        "0.2.0-rc.2": "compatible"
+      }
     }
   },
   "scripts": {
@@ -77,7 +83,8 @@
     "react-dom": "^18.3.1"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "dsh": ">=0.2.0-rc.2"
   },
   "packageManager": "pnpm@11.8.0"
 }

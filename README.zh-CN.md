@@ -2,7 +2,7 @@
 
 [English](README.md) | **简体中文**
 
-包名为 `@zhz8888/dsh-android-emulator-helper`，插件页显示的是本地化名称——英文 **Android Emulator**、中文 **Android 模拟器**——由 `locale/en.json` 与 `locale/zh.json` 提供，一句话描述也在其中。
+包名为 `@zhz8888/dsh-android-emulator-helper`，插件页显示的是本地化名称——英文 **Android Emulator Helper**、中文 **Android 模拟器助手**——由 `locale/en.json` 与 `locale/zh.json` 提供，一句话描述也在其中。
 
 把 ZCode 官方 `android-emulator@0.1.0` 插件移植为 **DSH（DeepSeek Harness）原生插件**：原有 23 个 MCP 工具全部保留为 DSH 原生工具，并新增一个完整的 **设置页面**（设置 → Android 模拟器），让 SDK、模拟器、系统镜像、构建与输出目录等参数都能在应用里配置，而不是靠环境变量。
 
@@ -34,9 +34,7 @@ cd /path/to/dsh-android-emulator-helper
 pnpm install
 ```
 
-本插件 import 的官方包 `@deepseek-ai/cordis`、`@deepseek-ai/dsh-tools`、`@deepseek-ai/schemastery` **全部声明在 `peerDependencies`**，由宿主提供：profile 里本来就带着它们，解析到宿主那一份还能保证设置表单背后只有一个 `schemastery` 实例。上面的 `pnpm install` 只为开发与测试把它们装到本仓库。
-
-DSH 的兼容性闸门正是按 `peerDependencies` 里 `@deepseek-ai/dsh*` 的版本区间与运行时版本比对，不匹配会明确拒装。区间因此**只写下界**（`>=0.2.0-rc.2`）：写上界会在 DSH 每次升版时逼着插件重发一次放宽范围，而 `^` 区间会静默漏掉下一个版本元组的预发布版。
+本插件 import 的官方包 `@deepseek-ai/cordis`、`@deepseek-ai/dsh-tools`、`@deepseek-ai/schemastery` **全部声明在 `peerDependencies`**，由宿主提供：profile 里本来就带着它们，解析到宿主那一份还能保证设置表单背后只有一个 `schemastery` 实例。上面的 `pnpm install` 只为开发与测试把它们装到本仓库；它们声明的区间就是 [DSH 版本闸门](#dsh-版本闸门)所述的 DSH 版本要求。
 
 ### 2. 装进 profile
 
@@ -53,6 +51,21 @@ dsh plugin --profile <profile> add /absolute/path/to/dsh-android-emulator-helper
 ### 3. 打开设置页
 
 重启/热加载后，打开 **设置 → Android 模拟器**。页面在 host 半侧真正提供了该设置命名空间时才会出现；反之不会留下任何痕迹。
+
+### DSH 版本闸门
+
+DSH 版本要求是 **`>=0.2.0-rc.2`——只有下界，没有上界**，三处声明逐字一致（`peerDependencies`、`engines.dsh`、`dsh.compatibility.dsh`）：低于下界的运行时会**直接拒绝安装**，同时未来的稳定版都不会被排除；`dsh.compatibility.dshReleases` 记录的是本插件真正跑过验证的那个版本。
+
+写上界会在 DSH 每次升版时逼着插件重发一次放宽范围，而 `^` 区间会静默漏掉下一个版本元组的预发布版。真正被执行的只有 peer 区间——`dsh plugin add` 走的是 `@deepseek-ai/dsh*` 的 peer 解析，而 harness 今天既不读 `engines.dsh` 也不读 `dsh.compatibility`——所以三份声明由 `test/manifest.test.js` 逐个比对，而不是靠自觉。
+
+只有一个 node-semver 细节绕不开：`0.2.1-alpha.1` 这类**新元组的预发布**在 npm/pnpm 的默认规则下不被放行，安装会失败。此时二选一——给范围补一条该元组的分支（`">=0.2.0-rc.2 <0.2.1-0 || >=0.2.1-0"`），或让 pnpm 放宽 peer 校验：
+
+```bash
+dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
+  --config.strict-peer-dependencies=false
+```
+
+稳定版（`0.2.0`、`0.2.1`、`0.3.0`、`1.0.0`…）不受这个细节影响，一律放行。
 
 ## 设置页面
 
@@ -164,13 +177,13 @@ dsh-android-emulator-helper/
 
 1. **设置命名空间只有一个真相来源**：profile patch 行 id。`cordis.patch.yml` 的 `id`、`lib/settings.js` 的 `SETTINGS_NAMESPACE`、`lib/client.js` 的字面量必须一致；`scripts/check-bundle.mjs` 会校验它们，也会校验 host 与 client 两份字段表无漂移。
 2. **browser bundle 不能 import host 模块**（客户端纯度闸门禁止跨插件值导入），因此字段表被写了两遍，靠闸门保持一致；bundle 只能 `require` 宿主的 9 个静态模块（React、Cordis、`dsh-client-store`、`dsh-client-ui-slots`、`dsh-client-ui-primitives`、`dsh-client-ui-dockkit` 等）。
-3. **插件页的名字是包内资源，不是 manifest 字段**：DSH 通过 `exports` 解析 `<包名>/locale/en.json`，所以 `./locale/*.json` 必须保持导出、`locale` 必须留在 `files` 里；任一处缺失都会静默退化成显示原始包名。`en.json` 同时是其它语言文件的开关，因此不能只留 `zh.json`。这三条都由 `test/manifest.test.js` 钉住。
+3. **插件页的名字是包内资源，不是 manifest 字段**：DSH 通过 `exports` 解析 `<包名>/locale/en.json`，所以 `./locale/*.json` 必须保持导出、`locale` 必须留在 `files` 里；任一处缺失都会静默退化成显示原始包名。`en.json` 同时是其它语言文件的开关，因此不能只留 `zh.json`。这三条由 `test/manifest.test.js` 钉住；`scripts/check-bundle.mjs` 还会把该名字与 bundle 实际渲染的标题、导航标签按语言逐一比对，避免插件列表和设置页把同一个插件叫成两个名字。
 
 ## 开发与验证
 
 ```bash
 pnpm install                 # 装官方 peer 包与 react/react-dom（开发与测试用）
-pnpm test                    # 145 个测试（无需 Android SDK）
+pnpm test                    # 146 个测试（无需 Android SDK）
 pnpm run check               # 测试 + host/client 一致性闸门 + 真实 Cordis 挂载验证
 pnpm run verify:mount        # 真实 Cordis Context + 真实 ToolRuntime 注册表
 pnpm run smoke               # 只读真机探测：preflight / AVD / 设备 / 项目发现 / inventory

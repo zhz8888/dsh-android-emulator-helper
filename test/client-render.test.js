@@ -101,7 +101,7 @@ test('the page frames every category as its own card, under one title', () => {
   // The section draws its own title because the shell renders only the nav
   // label, and one card per category is what separates the groups: the outline
   // is the separator, so no rule sits between them.
-  assert.match(report.markup, /<h2 class="aemh_title">Android Emulator<\/h2>/)
+  assert.match(report.markup, /<h2 class="aemh_title">Android Emulator Helper<\/h2>/)
   assert.equal((report.markup.match(/aemh_group"/g) ?? []).length >= 6, true, 'five field cards plus the tools card')
 })
 

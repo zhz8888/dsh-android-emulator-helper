@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Android Emulator",
-    "description": "Android SDK, emulator and device management for DeepSeek Harness: 23 native android_* tools covering SDK discovery, AVD and emulator lifecycle, Kotlin/Compose project scaffolding, Gradle build and run, install and launch, screenshots, logcat and UI automation, plus a settings page for the SDK, emulator and build parameters."
+    "title": "Android Emulator Helper",
+    "description": "Unofficial helper for Google's Android Emulator: 23 native android_* tools covering SDK discovery, AVD and emulator lifecycle, Kotlin/Compose project scaffolding, Gradle build and run, install and launch, screenshots, logcat and UI automation, plus a settings page for the SDK, emulator and build parameters. Not affiliated with Google."
   }
 }

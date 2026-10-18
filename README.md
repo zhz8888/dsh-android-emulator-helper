@@ -3,9 +3,9 @@
 **English** | [简体中文](README.zh-CN.md)
 
 The package is named `@zhz8888/dsh-android-emulator-helper`, and the plugin page
-shows its localized name — **Android Emulator** in English, **Android 模拟器** in
-Chinese — read from `locale/en.json` and `locale/zh.json`, which carry the
-one-line description too.
+shows its localized name — **Android Emulator Helper** / **Android 模拟器助手** —
+read from `locale/en.json` and `locale/zh.json`, which carry the one-line
+description too.
 
 A DSH (DeepSeek Harness) port of the official ZCode `android-emulator@0.1.0`
 plugin. All 23 tools keep their original names and argument names, and the
@@ -39,13 +39,9 @@ Every `@deepseek-ai/*` package this plugin imports — `cordis`, `dsh-tools` and
 `schemastery` — is a **peer dependency the host provides**, not a dependency of
 its own: the profile already carries them, and resolving them to the host's copy
 keeps one `schemastery` instance behind the settings form. The local `pnpm
-install` above installs them for development and tests only.
-
-DSH's compatibility gate compares exactly the `@deepseek-ai/dsh*` peers against
-the runtime version, so a mismatch refuses the install loudly. The ranges are
-therefore lower-bound only (`>=0.2.0-rc.2`): an upper bound would have to be
-widened by a new release on every harness bump, and a `^` range silently drops
-the prereleases of the next version tuple.
+install` above installs them for development and tests only; the range they
+declare is the DSH requirement described under
+[The DSH version gate](#the-dsh-version-gate).
 
 ### 2. Mount into a profile
 
@@ -69,6 +65,34 @@ every tool name twice and fails the load.
 After a restart or hot reload, open **Settings → Android emulator**. The page
 appears only while the host half actually serves the settings namespace, and
 leaves no trace when it does not.
+
+### The DSH version gate
+
+The DSH requirement is **`>=0.2.0-rc.2`, a lower bound only**, declared
+identically in `peerDependencies`, `engines.dsh` and `dsh.compatibility.dsh`, so
+a runtime below it is refused at install time and no future harness release is
+excluded. `dsh.compatibility.dshReleases` records the release this plugin was
+actually exercised against.
+
+An upper bound would have to be widened on every harness bump, and a `^` range
+silently drops the prereleases of the next version tuple. Only the peer range is
+enforced — `dsh plugin add` resolves the `@deepseek-ai/dsh*` peers, while the
+harness reads neither `engines.dsh` nor `dsh.compatibility` today — so
+`test/manifest.test.js` compares the three copies rather than leaving the claim
+to trust.
+
+One node-semver detail survives: a **new tuple's** prerelease such as
+`0.2.1-alpha.1` is not admitted by npm's and pnpm's default rules, so that
+install fails until either the range gains a branch for the tuple
+(`">=0.2.0-rc.2 <0.2.1-0 || >=0.2.1-0"`) or the peer check is skipped:
+
+```bash
+dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
+  --config.strict-peer-dependencies=false
+```
+
+Stable releases (`0.2.0`, `0.2.1`, `0.3.0`, `1.0.0`, …) are unaffected and always
+admitted.
 
 ## Settings page
 
@@ -200,13 +224,15 @@ Three constraints shape everything above:
    either omission degrades silently to showing the raw package name. `en.json`
    is also the switch that enables every other language file, so it cannot be
    dropped in favour of `zh.json`. `test/manifest.test.js` pins all three
-   conditions.
+   conditions, and `scripts/check-bundle.mjs` compares that name with the heading
+   and nav label the bundle draws, in both languages, so the plugin list and the
+   settings page cannot end up calling the same plugin two different things.
 
 ## Development
 
 ```bash
 pnpm install                 # the @deepseek-ai/* peers plus react/react-dom for the tests
-pnpm test                    # 145 tests, no Android SDK needed
+pnpm test                    # 146 tests, no Android SDK needed
 pnpm run check               # tests + host/client gate + real-Cordis mount
 pnpm run verify:mount        # real Cordis Context and real ToolRuntime
 pnpm run smoke               # read-only real-machine probes

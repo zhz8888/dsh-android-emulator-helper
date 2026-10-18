@@ -62,8 +62,8 @@ test('a plugin list can read a localized display name and description', () => {
       JSON.parse(readFileSync(path.join(ROOT, 'locale', `${language}.json`), 'utf8')),
     ]),
   )
-  assert.equal(dictionaries.en.meta.title, 'Android Emulator')
-  assert.equal(dictionaries.zh.meta.title, 'Android 模拟器')
+  assert.equal(dictionaries.en.meta.title, 'Android Emulator Helper')
+  assert.equal(dictionaries.zh.meta.title, 'Android 模拟器助手')
   for (const [language, dictionary] of Object.entries(dictionaries)) {
     assert.ok(dictionary.meta.description.length > 0, `${language} needs a description`)
     assert.ok(!dictionary.meta.title.includes('dsh-'), `${language} must not show the package name`)
@@ -128,6 +128,19 @@ test('the compatibility-gate peers carry no upper bound', () => {
     if (!name.startsWith('@deepseek-ai/')) continue
     assert.match(range, /^>=\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, `${name}: ${range} is not a lower-bound-only range`)
   }
+})
+
+test('the DSH range is declared identically in all three places', () => {
+  // Only the peer range is enforced: `dsh plugin add` resolves the
+  // `@deepseek-ai/dsh*` peers, while the harness reads neither `engines.dsh` nor
+  // `dsh.compatibility` today. A requirement that is documented but declared
+  // somewhere else is worse than none, so the three copies are compared here and
+  // `dshReleases` records the release actually exercised.
+  const range = manifest.peerDependencies['@deepseek-ai/dsh-tools']
+  assert.equal(manifest.engines.dsh, range)
+  assert.equal(manifest.dsh.compatibility.dsh, range)
+  assert.equal(manifest.dsh.compatibility.dshReleases['0.2.0-rc.2'], 'compatible')
+  assert.match(range, /^>=/, 'the DSH requirement must state a lower bound only')
 })
 
 test('repository, homepage and bugs name the same repository', () => {
