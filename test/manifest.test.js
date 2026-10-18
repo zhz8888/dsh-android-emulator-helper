@@ -169,3 +169,37 @@ test('the files whitelist covers every path the manifest points at', () => {
     assert.ok(manifest.files.includes(top), `${relative} is not covered by files`)
   }
 })
+
+test('the screenshot manifest lists 1-8 images that exist inside the repo', () => {
+  // `screenshots.json` next to package.json is what a plugin market reads for
+  // the preview gallery; the paths are relative to it and may not leave the
+  // plugin directory. A missing or empty list costs the listing its previews,
+  // and a path that climbs out of the repo would be fetched from a file that is
+  // not ours, so both are pinned here.
+  const file = path.join(ROOT, 'screenshots.json')
+  assert.ok(existsSync(file), 'screenshots.json is missing')
+  const parsed = JSON.parse(readFileSync(file, 'utf8'))
+  const list = Array.isArray(parsed) ? parsed : parsed.screenshots
+  assert.ok(Array.isArray(list), 'screenshots.json must be a list or {"screenshots": [...]}')
+  assert.ok(list.length >= 1 && list.length <= 8, `expected 1-8 screenshots, saw ${list.length}`)
+  for (const entry of list) {
+    assert.equal(typeof entry, 'string', 'every screenshot entry must be a path')
+    assert.ok(!entry.startsWith('/'), `${entry} must be relative to screenshots.json`)
+    assert.ok(!entry.split('/').includes('..'), `${entry} must stay inside the plugin directory`)
+    assert.match(entry, /\.(png|jpe?g|webp)$/i, `${entry} must be an image`)
+    assert.ok(existsSync(path.join(ROOT, entry)), `${entry} is declared but missing`)
+  }
+})
+
+test('every screenshot the market is shown is embedded in both READMEs', () => {
+  // The gallery and the prose are two halves of one listing. A rename that
+  // reaches only one of them renders as a broken image on GitHub, and nothing
+  // else in this suite would notice, so the two are compared here.
+  const declared = JSON.parse(readFileSync(path.join(ROOT, 'screenshots.json'), 'utf8'))
+  for (const relative of declared) {
+    for (const readme of ['README.md', 'README.zh-CN.md']) {
+      const source = readFileSync(path.join(ROOT, readme), 'utf8')
+      assert.ok(source.includes(relative), `${readme} does not embed ${relative}`)
+    }
+  }
+})

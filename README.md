@@ -17,6 +17,7 @@ instead of through environment variables.
 
 - [Install](#install)
 - [Settings page](#settings-page)
+- [Screenshots](#screenshots)
 - [Tools](#tools)
 - [Skill and command](#skill-and-command)
 - [Differences from the original](#differences-from-the-original)
@@ -138,6 +139,40 @@ The seven fields the original plugin exposed still fall back to their
 working: the resolution order is settings page → environment variable →
 declared default.
 
+## Screenshots
+
+All four are the live page in DSH Desktop, in the order you scroll it — nothing
+is mocked up. They are 1598 × 1588 PNGs of the 1.1.0 card layout, captured in
+the Chinese locale, so the card headings and field labels read Chinese while the
+field keys in the table above are the same in either language. Grey text is a
+placeholder standing in for a field left empty, and the sticky save bar appears
+only while an edit is staged, so it is not in these shots.
+
+**1. SDK and toolchain** — the SDK root, JDK major version and build-tools
+version every `android_*` call resolves first, then the top of the emulator card
+with its default AVD:
+
+![The Android emulator settings page in DSH Desktop: the SDK and toolchain card with the Android SDK root, JDK major version and build-tools version, then the emulator-and-devices card starting at the default AVD](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-1-sdk-and-toolchain.png)
+
+**2. Emulator and devices** — which device a call talks to and how an emulator is
+started: the default serial, the auto-start switch, the extra `emulator`
+arguments and the boot timeout, then the top of the API-level card:
+
+![The page scrolled to the emulator-and-devices card: default device serial, the auto-start emulator switch, the extra emulator arguments and the boot timeout, then the API-level card starting at the Android API level](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-2-emulator-and-devices.png)
+
+**3. API level and build** — what a generated project and an installed system
+image target, then the `gradle` timeout and extra arguments:
+
+![The page scrolled further: the API-level-and-system-image card with the system image variant, ABI and default minSdk, then the build card with the Gradle build timeout and the extra Gradle arguments](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-3-api-and-build.png)
+
+**4. Output and diagnostics** — where screenshots and build logs land, then the
+two buttons backing the page, next to the Fetch routes above:
+
+![The bottom of the page: the output-and-logs card with the data directory, screenshot directory and default logcat line count, then the diagnostics-and-discovery card with the run-diagnostic and refresh-devices buttons](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-4-output-and-diagnostics.png)
+
+`screenshots.json` lists these four files in this order next to `package.json` in
+the repository, which is how a plugin market finds them.
+
 ## Tools
 
 `android_preflight`, `android_discover_project`, `android_create_app`,
@@ -191,6 +226,7 @@ dsh-android-emulator-helper/
 ├── package.json            # dsh.bundle.patch, dsh.client, peer dependencies (the compatibility gate)
 ├── cordis.patch.yml        # - insert: [{ id: android-emulator-helper, name: '@zhz8888/dsh-android-emulator-helper' }]
 ├── icon.svg                # plugin icon: the Android robot head, brand green, readable in both themes
+├── screenshots.json        # the four preview images a plugin market shows, in scroll order
 ├── locale/en.json          # plugin-page name and description (English; its presence is what enables every other language)
 ├── locale/zh.json          # the Simplified Chinese pair
 ├── lib/
@@ -203,6 +239,7 @@ dsh-android-emulator-helper/
 │   └── util/               # process execution, paths, content blocks
 ├── skills/android-dev/     # SKILL.md + INSTALL_ENVIRONMENT.md
 ├── scripts/                # check-bundle.mjs (consistency gate), smoke.mjs (real-machine), verify-mount.mjs
+├── assets/                 # the four settings-page screenshots `screenshots.json` names
 └── test/                   # node:test unit and integration suites
 ```
 
@@ -232,7 +269,7 @@ Three constraints shape everything above:
 
 ```bash
 pnpm install                 # the @deepseek-ai/* peers plus react/react-dom for the tests
-pnpm test                    # 146 tests, no Android SDK needed
+pnpm test                    # 148 tests, no Android SDK needed
 pnpm run check               # tests + host/client gate + real-Cordis mount
 pnpm run verify:mount        # real Cordis Context and real ToolRuntime
 pnpm run smoke               # read-only real-machine probes

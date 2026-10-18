@@ -113,8 +113,26 @@ them against the source. Keep these honest, and re-derive them after a change:
 - the test count printed by `pnpm test`,
 - the settings table (key, kind, default, group) against `lib/settings.js`,
 - the two route paths against `lib/index.js`,
-- the DSH range against the three places that declare it, and
+- the DSH range against the three places that declare it,
+- the gallery in `screenshots.json` against `assets/` and the two READMEs, and
 - the verification table against the commands that actually exist.
+
+## The preview gallery is four curated files, and the only committed images
+
+A plugin market shows the screenshots `screenshots.json` lists next to
+`package.json`: the paths are relative to the repository root, may not leave it,
+and the order is the order they are displayed. The four live in `assets/` under
+`settings-page-N-<what-the-shot-shows>.png` and show the real settings page in
+DSH Desktop, in the order it scrolls — never a mock-up, and never a shot of a
+build that was not captured from the running page.
+
+The READMEs embed the same four files, so a rename lands in three places at once;
+`test/manifest.test.js` fails on a half-rename instead of letting GitHub render a
+broken image. Nothing under `assets/` and not `screenshots.json` ships in the
+tarball — `files` stays as it is and the market fetches them from the repository.
+
+This is the single exception to "never commit run artifacts". A capture that is
+not one of the four stays out of the repository like every other run artifact.
 
 ## Commit conventions
 
@@ -198,7 +216,8 @@ behaviour and will report the bugs this version fixed.
   only, or change the namespace without changing all four places (manifest,
   patch row, host, client).
 - Commit run artifacts: `.tmp-*/` scratch trees, screenshots, build logs,
-  `.gradle/`, `*.tgz`, coverage.
+  `.gradle/`, `*.tgz`, coverage. `assets/` and `screenshots.json` are the one
+  curated exception, and only the four files the gallery names.
 - Describe behaviour in the READMEs that the source does not implement.
 - Let a generated project depend on hand edits to build. `android_create_app`
   must emit a project that compiles as-is; `lib/providers/project-template.js`

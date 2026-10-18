@@ -14,6 +14,7 @@
 
 - [安装](#安装)
 - [设置页面](#设置页面)
+- [设置页截图](#设置页截图)
 - [工具清单](#工具清单)
 - [Skill 与斜杠命令](#skill-与斜杠命令)
 - [与原插件的差异](#与原插件的差异)
@@ -100,6 +101,28 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 
 原插件的 7 个字段仍会回落到同名环境变量（`ANDROID_PLUGIN_SDK_PATH`、`ANDROID_PLUGIN_DEFAULT_AVD`、`ANDROID_PLUGIN_API_LEVEL`、`ANDROID_PLUGIN_BUILD_TOOLS_VERSION`、`ANDROID_PLUGIN_SYSTEM_IMAGE_VARIANT`、`ANDROID_PLUGIN_SYSTEM_IMAGE_ABI`、`ANDROID_PLUGIN_JDK_MAJOR`）。解析顺序为「设置页 → 环境变量 → 内置默认值」，所以已有 ZCode 或 CI 环境无需改动即可继续工作。
 
+## 设置页截图
+
+四张都是 DSH Desktop 里真实页面按滚动顺序的实拍，没有任何拼凑。1598 × 1588 PNG，对应 1.1.0 的卡片布局；截图时窗口是中文语言，所以卡片标题与字段标签都是中文，而上表里的字段 key 两种语言下完全一致。灰色文字是留空字段的占位提示；底部保存条只在有改动待保存时出现，因此这几张图里没有它。
+
+**1. SDK 与工具链** —— 每次 `android_*` 调用最先解析的 SDK 根目录、JDK 主版本与 build-tools 版本，以及模拟器卡片开头的默认 AVD：
+
+![DSH Desktop 的 Android 模拟器设置页：SDK 与工具链卡片里的 Android SDK 根目录、JDK 主版本与 Build-tools 版本，下面是模拟器与设备卡片开头的默认 AVD](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-1-sdk-and-toolchain.png)
+
+**2. 模拟器与设备** —— 调用打到哪台设备、模拟器怎么起来：默认设备序列号、自动启动开关、额外 `emulator` 参数与启动超时，然后是 API 级别卡片的开头：
+
+![页面滚动到模拟器与设备卡片：默认设备序列号、自动启动模拟器开关、额外 emulator 参数与模拟器启动超时，下面是 API 级别卡片开头的 Android API 级别](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-2-emulator-and-devices.png)
+
+**3. API 级别与构建** —— 生成项目与安装系统镜像的目标，以及 `gradle` 的超时与附加参数：
+
+![页面继续向下滚动：API 级别与系统镜像卡片里的系统镜像变体、系统镜像 ABI 与默认 minSdk，下面是构建卡片里的 Gradle 构建超时与额外 Gradle 参数](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-3-api-and-build.png)
+
+**4. 输出目录与检测** —— 截图和构建日志落在哪里，以及支撑页面的两个按钮（对应上面的 Fetch 路由）：
+
+![页面底部：输出目录与日志卡片里的数据目录、截图目录与默认 logcat 行数，下面是环境检测与探测卡片里的检测环境与刷新设备与 AVD 按钮](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-4-output-and-diagnostics.png)
+
+`screenshots.json` 就在仓库里的 `package.json` 旁边按这个顺序列出四张图，插件市场据此展示。
+
 ## 工具清单
 
 23 个工具，名称与参数与原插件一致。
@@ -158,6 +181,7 @@ dsh-android-emulator-helper/
 ├── package.json            # dsh.bundle.patch、dsh.client、peer 依赖（兼容性闸门）
 ├── cordis.patch.yml        # - insert: [{ id: android-emulator-helper, name: '@zhz8888/dsh-android-emulator-helper' }]
 ├── icon.svg                # 插件图标：Android 机器人头部，品牌绿，明暗主题下都可辨认
+├── screenshots.json        # 插件市场展示的四张预览图，按页面滚动顺序
 ├── locale/en.json          # 插件页的显示名与描述（英文；它的存在才是其它语言文件生效的开关）
 ├── locale/zh.json          # 简体中文那一份
 ├── lib/
@@ -170,6 +194,7 @@ dsh-android-emulator-helper/
 │   └── util/               # 进程执行、路径、内容块
 ├── skills/android-dev/     # SKILL.md + INSTALL_ENVIRONMENT.md
 ├── scripts/                # check-bundle.mjs（一致性闸门）、smoke.mjs（真机集成）
+├── assets/                 # `screenshots.json` 指到这四张设置页截图
 └── test/                   # node:test 单元与集成测试
 ```
 
@@ -183,7 +208,7 @@ dsh-android-emulator-helper/
 
 ```bash
 pnpm install                 # 装官方 peer 包与 react/react-dom（开发与测试用）
-pnpm test                    # 146 个测试（无需 Android SDK）
+pnpm test                    # 148 个测试（无需 Android SDK）
 pnpm run check               # 测试 + host/client 一致性闸门 + 真实 Cordis 挂载验证
 pnpm run verify:mount        # 真实 Cordis Context + 真实 ToolRuntime 注册表
 pnpm run smoke               # 只读真机探测：preflight / AVD / 设备 / 项目发现 / inventory
