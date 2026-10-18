@@ -52,6 +52,12 @@ coverage/
 # two gates.
 docs/
 
+# ─── Agents ──────────────────────────────────────────────────────────────────
+# `AGENTS.md` is the shared context and is committed. A local override file is
+# one developer's personal preferences, so it stays out of the repository the
+# same way a personal editor config does.
+.claude.local.md
+
 # ─── Editors ─────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
