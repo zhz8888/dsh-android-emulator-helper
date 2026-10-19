@@ -7,16 +7,16 @@ before changing anything.
 
 A DSH (DeepSeek Harness) plugin: a **host half** (`lib/index.js` and
 `lib/providers/**`) that registers 23 `android_*` tools, one embedded skill, one
-slash command and two settings-page Fetch routes, plus a **client half**
-(`lib/client.js`) that is a hand-written classic script rendering the settings
-page. `lib/**` is committed on purpose — the browser bundle is written, not
-generated.
+slash command and two configuration-page Fetch routes, plus a **client half**
+(`lib/client.js`) that is a hand-written classic script rendering the plugin's
+parameter page on the **Plugins page**. `lib/**` is committed on purpose — the
+browser bundle is written, not generated.
 
 ## Commands
 
 ```bash
 pnpm install                 # @deepseek-ai/* peers + react/react-dom, for tests only
-pnpm test                    # 151 tests: unit, settings projection, parsers, render, routes
+pnpm test                    # 154 tests: unit, settings projection, parsers, render, routes
 pnpm run check               # test + check-bundle + verify-mount: the definition of done
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
 pnpm run smoke               # read-only real-machine probes
@@ -53,7 +53,7 @@ dsh-android-emulator-helper/
 ├── locale/zh.json          # the Simplified Chinese pair
 ├── lib/
 │   ├── index.js            # host half: tools, skill, command and the two Fetch routes
-│   ├── client.js           # browser half: a hand-written __ModuleLoader__ bundle, the settings page
+│   ├── client.js           # browser half: a hand-written __ModuleLoader__ bundle, the plugin's page in the Plugins panel
 │   ├── settings.js         # field declarations, the schemastery Config (every field .volatile()), live reads
 │   ├── runtime.js          # one runtime per call: session cwd + live settings → data directory
 │   ├── tools/index.js      # the 23 defineTool definitions, argument/result schemas, image admission
@@ -65,7 +65,7 @@ dsh-android-emulator-helper/
 └── test/                   # node:test unit and integration suites
 ```
 
-Three constraints shape that layout:
+Four constraints shape that layout:
 
 1. **The settings namespace has exactly one source of truth**: the profile patch
    row id. The `id` in `cordis.patch.yml`, `SETTINGS_NAMESPACE` in
@@ -83,6 +83,17 @@ Three constraints shape that layout:
    either omission degrades silently to showing the raw package name. `en.json`
    is also the switch that enables every other language file, so it cannot be
    dropped in favour of `zh.json`.
+4. **A plugin's own configuration belongs on the Plugins page**: DSH 0.2.x
+   expects a plugin that owns a page to register it into the Plugins page's
+   `plugins.bundle.config` keyed slot. `settings.section` still exists and still
+   renders third-party entries, but registering there as well would give the
+   plugin two configuration pages — one in the Settings dialog and one on its
+   plugin detail — which is exactly what this migration removed. The slot is
+   keyed by the **BUNDLE's package name** — a different string from the settings
+   namespace — and the page renders the entry inside the plugin detail, between
+   the package description and the component rows. The browser half exports
+   `PLUGIN_SURFACE` so `scripts/check-bundle.mjs` can pin the slot and the key
+   against `package.json`.
 
 ## The two halves share a contract, not code
 
@@ -97,25 +108,26 @@ A value that only exists on one side is the failure mode this exists to prevent:
 a field with no host node silently stops being persisted, and a heading with no
 client entry renders as a raw key.
 
-The plugin's **name** is duplicated the same way but across a different seam: the
-plugin list reads it from `locale/en.json` and `locale/zh.json`, while the
-settings page draws its own heading and registers its own nav label from the
-bundle's dictionary. `scripts/check-bundle.mjs` compares the two titles per
-language, so a rename has to land in four places — both dictionaries and both
-bundle dictionaries (`lib/client.js`) — and the exported `PAGE_META` exists only
-so that gate can read them. The title is the name a user sees; the nav label is
-the short form the shell renders in the sidebar, and they are deliberately not
-the same string.
+The plugin's **name** now has one source: `locale/en.json` and `locale/zh.json`,
+which both the plugin list and the plugin detail page read. The Settings-era
+heading and nav label are gone with the Settings section, so there is no second
+copy in `lib/client.js` for the gate to compare — and the exported `PAGE_META`
+that existed only for that comparison is gone too. The name still appears in the
+two READMEs and in the marketplace copy, so a rename is a documentation change
+plus the two dictionaries.
 
 ## The DSH requirement is one range, declared three times
 
 `>=0.2.0-rc.2`, a lower bound only, is written identically in
 `peerDependencies['@deepseek-ai/dsh-tools']`, `engines.dsh` and
-`dsh.compatibility.dsh`; `dsh.compatibility.dshReleases` names the release the
-plugin was actually exercised against. Only the peer range is enforced — `dsh
-plugin add` resolves the `@deepseek-ai/dsh*` peers, while the harness reads
-neither `engines.dsh` nor `dsh.compatibility` today — so the three copies are
-compared by `test/manifest.test.js` instead of being left to trust.
+`dsh.compatibility.dsh`; `dsh.compatibility.dshReleases` names the releases the
+plugin was actually exercised against: `0.2.1-rc.2`, the release this
+Plugins-page migration was verified on, and `0.2.0-rc.2`, the release the earlier
+settings page shipped against — the Plugins-page slots already exist there. Only
+the peer range is enforced — `dsh plugin add` resolves the `@deepseek-ai/dsh*`
+peers, while the harness reads neither `engines.dsh` nor `dsh.compatibility`
+today — so the three copies are compared by `test/manifest.test.js` instead of
+being left to trust.
 
 Never add an upper bound. `^`/`~`/`<` would mean re-releasing this plugin every
 time the harness bumps a major, and a `^` range additionally drops the
@@ -138,11 +150,11 @@ resolves every peer.
 
 ## Timeouts are seconds in the settings, milliseconds in the arguments
 
-`bootTimeoutSeconds` and `buildTimeoutSeconds` are what the settings page edits
-and what the providers multiply by 1000. Tool arguments named `timeoutMs` are
-milliseconds and override the setting. Do not "simplify" this by renaming either
-side: the settings page and the tool schema are separate contracts, and
-`test/emulator-start.test.js` pins the conversion by counting boot polls.
+`bootTimeoutSeconds` and `buildTimeoutSeconds` are what the configuration page
+edits and what the providers multiply by 1000. Tool arguments named `timeoutMs`
+are milliseconds and override the setting. Do not "simplify" this by renaming
+either side: the configuration page and the tool schema are separate contracts,
+and `test/emulator-start.test.js` pins the conversion by counting boot polls.
 
 ## The tool surface is frozen to the original plugin
 
@@ -167,6 +179,8 @@ them against the source. Keep these honest, and re-derive them after a change:
 - the tool count in the READMEs and in `lib/tools/index.js`,
 - the test count printed by `pnpm test`,
 - the settings table (key, kind, default, group) against `lib/settings.js`,
+- the slot and key the browser half registers into against `PLUGIN_SURFACE` and
+  `package.json`'s name,
 - the two route paths against `lib/index.js`,
 - the DSH range against the three places that declare it,
 - the icon against the format and size `dsh-app-boot` admits,
@@ -178,9 +192,10 @@ them against the source. Keep these honest, and re-derive them after a change:
 A plugin market shows the screenshots `screenshots.json` lists next to
 `package.json`: the paths are relative to the repository root, may not leave it,
 and the order is the order they are displayed. The four live in `assets/` under
-`settings-page-N-<what-the-shot-shows>.png` and show the real settings page in
-DSH Desktop, in the order it scrolls — never a mock-up, and never a shot of a
-build that was not captured from the running page.
+`settings-page-N-<what-the-shot-shows>.png` and show the real configuration page
+on the plugin's detail view of the Plugins panel in DSH, in the order it
+scrolls — never a mock-up, and never a shot of a build that was not captured from
+the running page.
 
 The READMEs embed the same four files, so a rename lands in three places at once;
 `test/manifest.test.js` fails on a half-rename instead of letting GitHub render a
@@ -195,14 +210,16 @@ label inside a shot, means all four are re-captured before the next release, and
 the sentence in both READMEs that dates them is updated with them. Nothing fails
 if they rot — the market simply shows a page that no longer exists.
 
-## The settings page's rhythm is deliberate
+## The configuration page's rhythm is deliberate
 
-Each field carries 7px above and below, so two of them sit 14px apart; a card is
-`12px 16px` with no bottom padding on its last field; cards sit 16px apart. The
-field and card-to-card steps are the sibling ios-simulator plugin's, so the two
-settings pages read the same; only the card's closing padding is this page's own,
-larger than that page's because the closing here is a hint rather than a
-control. Tune any of it and the page either sprawls or cramps.
+The host page draws the plugin's title, icon, crumb and description, so the form
+starts at the effect note and the category cards — never with a heading of its
+own. Each field carries 7px above and below, so two of them sit 14px apart; a
+card is `12px 16px` with no bottom padding on its last field; cards sit 16px
+apart. The field and card-to-card steps are the sibling ios-simulator plugin's,
+so the two configuration pages read the same; only the card's closing padding is
+this page's own, larger than that page's because the closing here is a hint
+rather than a control. Tune any of it and the page either sprawls or cramps.
 
 Every paragraph must state its own `margin`. The bundle is compiled on its own,
 so it cannot rely on a bare-element reset from wherever it is mounted, and the
@@ -271,9 +288,9 @@ the host↔client drift the gate exists for.
 | Layer | Command | What it proves |
 |---|---|---|
 | Unit and parsers | `pnpm test` | Bundle load contract, manifest and patch contract, settings projection (live volatile reads, env fallback, out-of-range fallback), every ported parser (`adb devices`, `emulator -list-avds`, UI Automator XML, `input text` escaping, APK selection, JDK major normalisation), and the lossless-JSON projection |
-| Settings page render | `pnpm test` (`client-render.test.js`) | The whole page rendered with real React and `react-dom/server`: every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, the override badge and reset, both route buttons, and no action bar while nothing is staged |
-| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, the plugin name matches the heading and nav label the bundle renders, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
-| Route integration | `test/routes-integration.test.js` | The two settings routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 17 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing both routes |
+| Configuration page render | `pnpm test` (`client-render.test.js`) | The whole form rendered with real React and `react-dom/server`: the registration targets `plugins.bundle.config` keyed by the package name and nothing else, every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, the override badge and reset, both route buttons, no title of its own, and no action bar while nothing is staged |
+| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the exported plugin surface is the Plugins page's `plugins.bundle.config` keyed by the package name (and the bundle no longer registers a Settings section), the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
+| Route integration | `test/routes-integration.test.js` | The two configuration routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 17 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing both routes |
 | Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, **all 23 dispatched through the registry** and validated against their argument and result schemas, malformed arguments refused, unknown names unresolved, 17 volatile fields, full unregistration on dispose |
 
 `pnpm run smoke` and `pnpm run smoke:emulator` are the real-machine layer and
@@ -283,7 +300,7 @@ real `android_create_app` → build → install → launch cycle.
 
 Two limits are accepted rather than worked around:
 
-- The settings routes are mounted in a real profile, but their HTTP responses
+- The configuration routes are mounted in a real profile, but their HTTP responses
   cannot be exercised outside the GUI: the desktop app authenticates every
   request, so a bare `curl` answers `403 forbidden` before the handler runs.
   `test/routes-integration.test.js` therefore invokes the handlers directly on a
@@ -377,6 +394,9 @@ behaviour and will report the bugs this version fixed.
 - Commit run artifacts: `.tmp-*/` scratch trees, screenshots, build logs,
   `.gradle/`, `*.tgz`, coverage. `assets/` and `screenshots.json` are the one
   curated exception, and only the four files the gallery names.
+- Register the plugin's configuration page in the Settings dialog
+  (`settings.section`) again: plugin-owned pages belong on the Plugins page, and
+  a second registration there would give the plugin two configuration pages.
 - Describe behaviour in the READMEs that the source does not implement.
 - Replace the direct `spawn` with DSH's subprocess seam. `gradlew`, `adb` and
   `emulator` behaving byte-for-byte as they did in the original is the reason the
