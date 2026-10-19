@@ -127,8 +127,9 @@ The original plugin's `userConfig` — the seven variables in the last column ab
 ## Screenshots
 
 All four are the live page in DSH Desktop, in the order you scroll it — nothing
-is mocked up. They are 1598 × 1588 PNGs of the 1.1.0 card layout, captured in
-the Chinese locale, so the card headings and field labels read Chinese while the
+is mocked up. They are 1598 × 1588 PNGs of the tightened card rhythm (7px above
+and below a field, a `12px 16px` card, 16px between cards), captured in the
+Chinese locale, so the card headings and field labels read Chinese while the
 field keys in the table above are the same in either language. Grey text is a
 placeholder standing in for a field left empty, and the sticky save bar appears
 only while an edit is staged, so it is not in these shots.
