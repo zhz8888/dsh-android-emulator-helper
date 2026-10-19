@@ -82,9 +82,9 @@ prefix. The tools are `android_preflight`, `android_discover_project`,
   result names the file on disk.
 - Android SDK path, default AVD, API level, build-tools version, system image
   variant/ABI, JDK major version, emulator arguments, timeouts and output
-  directories all come from the plugin's settings page (Settings → Android
-  emulator). `android_preflight` echoes the effective values under
-  `settings`. Historical `ANDROID_PLUGIN_*` environment variables are still
+  directories all come from the plugin's configuration page in the **Plugins**
+  panel (Plugins → Installed plugins → Android Emulator Helper).
+  `android_preflight` echoes the effective values under `settings`. Historical `ANDROID_PLUGIN_*` environment variables are still
   honoured as fallbacks for the fields that had them.
 
 ## Project Requirements
@@ -118,7 +118,7 @@ before building:
   `openjdk@<configured JDK major>`, export the matching `JAVA_HOME` from
   `INSTALL_ENVIRONMENT.md` and retry. Use the optional symlink step only after
   user confirmation.
-- If a build times out, raise the Gradle build timeout on the settings page
+- If a build times out, raise the Gradle build timeout on the configuration page
   rather than retrying blindly; the build log path in the result has the full
   transcript.
 - On Windows, if SDK package installation fails because Android SDK licenses are
@@ -131,14 +131,15 @@ before building:
   the exact `sdkmanager --install` command with a longer timeout before
   switching to larger `google_apis` images.
 
-## Settings Page
+## Configuration Page
 
-Settings → Android emulator edits the same values `android_preflight` reports. The
-page's **Run diagnostic** button runs the diagnostic in the app and shows
-every check with its fix hint, and **Refresh devices and AVDs** re-reads the
-connected devices, AVDs, installed SDK packages and JDKs, so the fields'
-suggestions offer real choices from this machine. Prefer pointing the user there over asking them to export environment
-variables.
+The plugin's page in the **Plugins** panel (Plugins → Installed plugins →
+Android Emulator Helper) edits the same values `android_preflight` reports. The
+page's **Run diagnostic** button runs the diagnostic in the app and shows every
+check with its fix hint, and **Refresh devices and AVDs** re-reads the connected
+devices, AVDs, installed SDK packages and JDKs, so the fields' suggestions offer
+real choices from this machine. Prefer pointing the user there over asking them
+to export environment variables.
 
 ## Extension Point
 

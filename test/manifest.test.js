@@ -145,6 +145,12 @@ test('declares the bundle patch and a web client half', () => {
   assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml')
   assert.equal(manifest.dsh.client.platform, 'web')
   assert.ok(Array.isArray(manifest.dsh.client.inject))
+  // The page registers into the Plugins page's slot, which the plugin-manager
+  // client module declares; naming it here is what orders that module before
+  // this bundle's browser half. `ui-settings` is what serves `configForms`.
+  for (const module of ['@deepseek-ai/dsh-client-ui-plugin-manager', '@deepseek-ai/dsh-client-ui-settings']) {
+    assert.ok(manifest.dsh.client.inject.includes(module), `dsh.client.inject must name ${module}`)
+  }
 })
 
 test('the shipped files list covers every path the host reads at runtime', () => {
@@ -199,11 +205,15 @@ test('the DSH range is declared identically in all three places', () => {
   // `@deepseek-ai/dsh*` peers, while the harness reads neither `engines.dsh` nor
   // `dsh.compatibility` today. A requirement that is documented but declared
   // somewhere else is worse than none, so the three copies are compared here and
-  // `dshReleases` records the release actually exercised.
+  // `dshReleases` records the releases actually exercised: 0.2.0-rc.2 shipped
+  // the earlier Settings-dialog page, and 0.2.1-rc.2 is the release the
+  // Plugins-page migration was verified on.
   const range = manifest.peerDependencies['@deepseek-ai/dsh-tools']
   assert.equal(manifest.engines.dsh, range)
   assert.equal(manifest.dsh.compatibility.dsh, range)
-  assert.equal(manifest.dsh.compatibility.dshReleases['0.2.0-rc.2'], 'compatible')
+  for (const release of ['0.2.0-rc.2', '0.2.1-rc.2']) {
+    assert.equal(manifest.dsh.compatibility.dshReleases[release], 'compatible', `${release} must be exercised`)
+  }
   assert.match(range, /^>=/, 'the DSH requirement must state a lower bound only')
 })
 

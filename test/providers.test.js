@@ -6,6 +6,8 @@ import { parseAvds, startedEmulatorCandidates } from '../lib/providers/avd.js'
 import { inputText, parseUiAutomator } from '../lib/providers/ui.js'
 import { pickApk } from '../lib/providers/build.js'
 import { projectWarnings } from '../lib/providers/project.js'
+import { PAGE_LOCATION } from '../lib/providers/preflight.js'
+import { readFileSync } from 'node:fs'
 
 /**
  * Pure-function tests for the ported providers.
@@ -151,4 +153,15 @@ test('provider results are projected into the harness lossless-JSON domain', asy
   assert.equal(toLosslessJson(Number.POSITIVE_INFINITY), null)
   // Values that survive are untouched.
   assert.deepEqual(toLosslessJson({ ok: true, n: 0, s: '', list: [1, 2] }), { ok: true, n: 0, s: '', list: [1, 2] })
+})
+
+test('the diagnostic fix hints name the plugin page in the Plugins panel', () => {
+  // Both hints used to send the user to "the plugin settings" — a location that
+  // no longer exists after the page moved to the plugin detail view. The phrase
+  // is one exported constant so a stale instruction is a test failure, and each
+  // interpolation is counted so a hand-written replacement is caught too.
+  assert.match(PAGE_LOCATION, /Plugins panel/)
+  assert.match(PAGE_LOCATION, /Android Emulator Helper/)
+  const source = readFileSync(new URL('../lib/providers/preflight.js', import.meta.url), 'utf8')
+  assert.equal((source.match(/\$\{PAGE_LOCATION\}/g) ?? []).length, 2, 'both fix hints must interpolate PAGE_LOCATION')
 })

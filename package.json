@@ -2,7 +2,7 @@
   "name": "@zhz8888/dsh-android-emulator-helper",
   "version": "1.1.2",
   "icon": "./android-emulator.png",
-  "description": "Android SDK, emulator and device management plus Kotlin/Compose build-and-run tools for DeepSeek Harness, ported from the official ZCode android-emulator plugin, with a full in-app settings page.",
+  "description": "Android SDK, emulator and device management plus Kotlin/Compose build-and-run tools for DeepSeek Harness, ported from the official ZCode android-emulator plugin, with its parameter page on the plugin's own detail page in the Plugins panel.",
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",
@@ -55,13 +55,15 @@
       "platform": "web",
       "inject": [
         "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
         "@deepseek-ai/dsh-client-ui-settings"
       ]
     },
     "compatibility": {
       "dsh": ">=0.2.0-rc.2",
       "dshReleases": {
-        "0.2.0-rc.2": "compatible"
+        "0.2.0-rc.2": "compatible",
+        "0.2.1-rc.2": "compatible"
       }
     }
   },

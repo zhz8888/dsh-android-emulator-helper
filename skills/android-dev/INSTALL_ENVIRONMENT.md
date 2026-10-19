@@ -11,7 +11,8 @@ The goal is to make the environment ready with deterministic shell commands, the
 
 ## Configurable Defaults
 
-Open **Settings → Android emulator** in DSH to edit the Android SDK path,
+Open this plugin's page in DSH's **Plugins** panel (Plugins → Installed
+plugins → Android Emulator Helper) to edit the Android SDK path,
 default AVD, JDK major version, Android API level, build-tools version, and
 system image variant/ABI. `android_preflight` reports the effective defaults,
 and the same page has a **Run diagnostic** button that runs the whole
@@ -19,7 +20,7 @@ diagnostic.
 
 The values below are read by the shell and PowerShell commands in this file. They
 still fall back to the historical `ANDROID_PLUGIN_*` environment variables, so an
-existing ZCode or CI setup keeps working without editing the settings page.
+existing ZCode or CI setup keeps working without editing the configuration page.
 
 Use those configured values instead of inventing versions. The documented fallback defaults are:
 

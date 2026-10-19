@@ -259,6 +259,10 @@ test('the /android-dev command report leads with the verdict and lists failures'
   assert.match(report, /\[FAIL\] Android SDK root/)
   assert.match(report, /Fix: Install Android Studio\./)
   assert.match(report, /build the demo app/)
+  // The report's last line used to point at Settings → Android emulator; the
+  // page now lives on the plugin's detail view in the Plugins panel.
+  assert.match(report, /Environment values are edited on this plugin's page in the Plugins panel/)
+  assert.match(report, /Plugins → Installed plugins → Android Emulator Helper/)
 })
 
 test('skill frontmatter parsing handles quoted values and a missing block', () => {
