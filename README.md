@@ -4,7 +4,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@zhz8888/dsh-android-emulator-helper.svg)](https://www.npmjs.com/package/@zhz8888/dsh-android-emulator-helper)
 [![license: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
-[![target: DSH](https://img.shields.io/badge/DSH-%3E%3D0.2.0--rc.2-blue.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+[![target: DSH](https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.2-blue.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
 
 A DeepSeek Harness (DSH) native port of the official ZCode `android-emulator@0.1.0` plugin: all 23 original MCP tools preserved as native DSH tools, plus a **parameter page on the plugin's own detail page** in the Plugins panel (Plugins → Installed plugins → Android Emulator Helper) that edits the SDK, emulator, system-image, build and output parameters in-app instead of through environment variables.
 
@@ -80,16 +80,16 @@ Settings live in the profile, not in the package, so both commands leave them in
 
 ### Version gate
 
-The DSH compatibility range is **`>=0.2.0-rc.2`, a lower bound only**, declared identically in `peerDependencies`, `engines.dsh` and `dsh.compatibility.dsh`: a runtime below it is refused at install time, and no future harness release is excluded.
+The DSH compatibility range is **`>=0.2.1-rc.2`, a lower bound only**, declared identically in `peerDependencies`, `engines.dsh` and `dsh.compatibility.dsh`: a runtime below it is refused at install time, and no future harness release is excluded. The floor is the release this plugin's Plugins-page configuration was built and verified against.
 
-One node-semver detail survives — a **new tuple's** prerelease such as `0.2.1-alpha.1` is not admitted by npm's and pnpm's default rules, so that install fails until either the range gains a branch for the tuple (`">=0.2.0-rc.2 <0.2.1-0 || >=0.2.1-0"`) or the peer check is skipped:
+One node-semver detail survives — a **new tuple's** prerelease such as `0.2.2-alpha.1` is not admitted by npm's and pnpm's default rules, so that install fails until either the range gains a branch for the tuple (`">=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-0"`) or the peer check is skipped:
 
 ```bash
 dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
   --config.strict-peer-dependencies=false
 ```
 
-Stable releases (`0.2.0`, `0.2.1`, `0.3.0`, `1.0.0`, …) are unaffected and always admitted.
+Stable releases at or above the floor (`0.2.1`, `0.3.0`, `1.0.0`, …) are unaffected and always admitted.
 
 ## Configuration page
 

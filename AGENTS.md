@@ -38,7 +38,7 @@ open a workspace — this is a single-package repository — it carries the
 install-script policy, `strictDepBuilds: true`: pnpm v10+ skips a dependency's
 build scripts *silently* by default, which is the wrong failure mode here, so
 strict mode fails `pnpm install` with `ERR_PNPM_IGNORED_BUILDS` and forces an
-explicit per-package decision. The current tree (27 packages) declares no
+explicit per-package decision. The current tree (31 packages) declares no
 install-time build scripts, so no `allowBuilds` entry is needed.
 
 ## Repository map
@@ -118,13 +118,12 @@ plus the two dictionaries.
 
 ## The DSH requirement is one range, declared three times
 
-`>=0.2.0-rc.2`, a lower bound only, is written identically in
+`>=0.2.1-rc.2`, a lower bound only, is written identically in
 `peerDependencies['@deepseek-ai/dsh-tools']`, `engines.dsh` and
-`dsh.compatibility.dsh`; `dsh.compatibility.dshReleases` names the releases the
-plugin was actually exercised against: `0.2.1-rc.2`, the release this
-Plugins-page migration was verified on, and `0.2.0-rc.2`, the release the earlier
-settings page shipped against — the Plugins-page slots already exist there. Only
-the peer range is enforced — `dsh plugin add` resolves the `@deepseek-ai/dsh*`
+`dsh.compatibility.dsh`; `dsh.compatibility.dshReleases` names the release the
+plugin was actually exercised against: `0.2.1-rc.2`, which is also the floor —
+the release the Plugins-page configuration was built and verified on. Only the
+peer range is enforced — `dsh plugin add` resolves the `@deepseek-ai/dsh*`
 peers, while the harness reads neither `engines.dsh` nor `dsh.compatibility`
 today — so the three copies are compared by `test/manifest.test.js` instead of
 being left to trust.
@@ -134,7 +133,9 @@ time the harness bumps a major, and a `^` range additionally drops the
 prereleases of the next version tuple, which is what makes pnpm fail an install
 the harness would have allowed. `cordis` and `schemastery` are widened for the
 same reason: the gate reads only the `@deepseek-ai/dsh*` peers, but pnpm still
-resolves every peer.
+resolves every peer. `@deepseek-ai/cordis`'s floor moves with the DSH floor, not
+with this plugin: the 0.2.1-rc.2 packages peer on `~4.0.5`, so this package
+requires `>=4.0.5` — still a lower bound only.
 
 ## Registry constraints that shape the tools
 

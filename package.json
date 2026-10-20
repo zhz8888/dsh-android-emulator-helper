@@ -60,9 +60,8 @@
       ]
     },
     "compatibility": {
-      "dsh": ">=0.2.0-rc.2",
+      "dsh": ">=0.2.1-rc.2",
       "dshReleases": {
-        "0.2.0-rc.2": "compatible",
         "0.2.1-rc.2": "compatible"
       }
     }
@@ -76,8 +75,8 @@
     "link:dsh-deps": "node scripts/link-dsh-deps.mjs"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": ">=4.0.4",
-    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.2",
+    "@deepseek-ai/cordis": ">=4.0.5",
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2",
     "@deepseek-ai/schemastery": ">=3.18.4"
   },
   "devDependencies": {
@@ -86,7 +85,7 @@
   },
   "engines": {
     "node": ">=22",
-    "dsh": ">=0.2.0-rc.2"
+    "dsh": ">=0.2.1-rc.2"
   },
   "packageManager": "pnpm@11.8.0"
 }

@@ -205,15 +205,13 @@ test('the DSH range is declared identically in all three places', () => {
   // `@deepseek-ai/dsh*` peers, while the harness reads neither `engines.dsh` nor
   // `dsh.compatibility` today. A requirement that is documented but declared
   // somewhere else is worse than none, so the three copies are compared here and
-  // `dshReleases` records the releases actually exercised: 0.2.0-rc.2 shipped
-  // the earlier Settings-dialog page, and 0.2.1-rc.2 is the release the
-  // Plugins-page migration was verified on.
+  // `dshReleases` records the release actually exercised: 0.2.1-rc.2, the floor
+  // and the release the Plugins-page page was built and verified against.
   const range = manifest.peerDependencies['@deepseek-ai/dsh-tools']
+  assert.equal(range, '>=0.2.1-rc.2')
   assert.equal(manifest.engines.dsh, range)
   assert.equal(manifest.dsh.compatibility.dsh, range)
-  for (const release of ['0.2.0-rc.2', '0.2.1-rc.2']) {
-    assert.equal(manifest.dsh.compatibility.dshReleases[release], 'compatible', `${release} must be exercised`)
-  }
+  assert.deepEqual(manifest.dsh.compatibility.dshReleases, { '0.2.1-rc.2': 'compatible' })
   assert.match(range, /^>=/, 'the DSH requirement must state a lower bound only')
 })
 
