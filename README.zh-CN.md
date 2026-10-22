@@ -208,7 +208,7 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 
 ## 参与贡献
 
-欢迎在 [github.com/zhz8888/dsh-android-emulator-helper](https://github.com/zhz8888/dsh-android-emulator-helper/issues) 提 issue 或 PR。任何改动都必须让 `pnpm check` 保持全绿——单元测试、host/client 一致性闸门、以及在真实 Cordis 宿主上的挂载验证；没有 CLA，也没有需要填的表单：一个说清楚改了什么、为什么改的聚焦 PR 就够了。
+欢迎在 [github.com/zhz8888/dsh-android-emulator-helper](https://github.com/zhz8888/dsh-android-emulator-helper/issues) 提 issue 或 PR。任何改动都必须让 `pnpm check` 保持全绿——单元测试、host/client 一致性闸门、在真实 Cordis 宿主上的挂载验证，以及对两半代码的类型检查；没有 CLA，也没有需要填的表单：一个说清楚改了什么、为什么改的聚焦 PR 就够了。
 
 本包按 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 市场的形态组织。开发约定——命令、仓库结构、不变式、测试、提交与发布规则——都在 [AGENTS.md](AGENTS.md)。
 

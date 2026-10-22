@@ -230,7 +230,7 @@ Every release is one commit in two places: tagged `vX.Y.Z` on `main` and publish
 
 ## Contributing
 
-Issues and pull requests are welcome at [github.com/zhz8888/dsh-android-emulator-helper](https://github.com/zhz8888/dsh-android-emulator-helper/issues). Every change has to keep `pnpm check` green — unit tests, a host/client consistency gate and a mount on a real Cordis host — and there is no CLA or form to fill in: a focused pull request that says what it changes and why is enough.
+Issues and pull requests are welcome at [github.com/zhz8888/dsh-android-emulator-helper](https://github.com/zhz8888/dsh-android-emulator-helper/issues). Every change has to keep `pnpm check` green — unit tests, a host/client consistency gate, a mount on a real Cordis host and a type check over both halves — and there is no CLA or form to fill in: a focused pull request that says what it changes and why is enough.
 
 The package is shaped for the [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) market. Development conventions — commands, repository map, invariants, testing, commit and release rules — live in [AGENTS.md](AGENTS.md).
 
