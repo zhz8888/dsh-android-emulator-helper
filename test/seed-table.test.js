@@ -15,21 +15,6 @@ import { STATIC_MODULES } from './helpers/load-bundle.mjs'
  * and skips when it is not, because the suite itself is hermetic.
  */
 
-/** The eleven specifiers the shipped SPA's seed table serves. */
-const SHELL_SEED = [
-  'react',
-  'react/jsx-runtime',
-  'react-dom',
-  'react-dom/client',
-  '@deepseek-ai/cordis',
-  'zod',
-  '@tanstack/react-virtual',
-  '@deepseek-ai/dsh-client-store',
-  '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-dockkit',
-]
-
 /** Where the installed desktop app keeps the web frontend's built assets. */
 const SPA_ASSETS =
   '/Applications/DSH Desktop.app/Contents/Resources/app/node_modules/@deepseek-ai/dsh-web-frontend/dist/assets'
@@ -83,13 +68,12 @@ function installedShellSeed() {
   return null
 }
 
-test('the seed table is the shell\'s eleven specifiers', () => {
-  // A shorter table would reject a bundle the shell serves; a longer one would
-  // admit a bundle the shell cannot resolve. Both are silent failures.
-  assert.deepEqual(STATIC_MODULES, SHELL_SEED)
-})
-
 test('the seed table matches the installed shell', (t) => {
+  // This is the only assertion that compares the repository's table with a real
+  // shell. Both arrays used to live in this repository, so the test compared two
+  // hand-written copies and would stay green on any machine without a DSH
+  // install; when there is no harness to read, skipping is more honest than
+  // "passing" against itself.
   const seed = installedShellSeed()
   if (seed === null) {
     t.skip('no installed DSH web frontend to compare the seed table against')

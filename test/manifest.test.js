@@ -286,7 +286,10 @@ test('the icon keys the artwork tile out without leaving a rim', () => {
   }
   // A pixel under 5% coverage cannot read as a rim whatever colour it carries,
   // so only the visible part of the edge is held to the head's own palette. The
-  // head's brightest pixel sits near 150; the keyed-out tile was 245.
+  // head's brightest pixel sits near 154; the keyed-out tile was 245, and a 50%
+  // blend between the two is ~200. A threshold of 200 would therefore accept
+  // exactly the rim this test exists to reject; 170 keeps the head's own
+  // antialiasing while refusing anything half-way to the tile.
   let palest = 0
   for (let y = 0; y < image.height; y += 1) {
     for (let x = 0; x < image.width; x += 1) {
@@ -295,7 +298,7 @@ test('the icon keys the artwork tile out without leaving a rim', () => {
       palest = Math.max(palest, 0.299 * r + 0.587 * g + 0.114 * b)
     }
   }
-  assert.ok(palest < 200, `a half-transparent pixel is as pale as the keyed-out tile: ${palest.toFixed(0)}`)
+  assert.ok(palest < 170, `a half-blended pixel is as pale as the keyed-out tile: ${palest.toFixed(0)}`)
 })
 
 test('the icon keeps exactly the two eyes the artwork draws', () => {
@@ -342,7 +345,11 @@ test('every screenshot the market is shown is embedded in both READMEs', () => {
   // The gallery and the prose are two halves of one listing. A rename that
   // reaches only one of them renders as a broken image on GitHub, and nothing
   // else in this suite would notice, so the two are compared here.
-  const declared = JSON.parse(readFileSync(path.join(ROOT, 'screenshots.json'), 'utf8'))
+  const parsed = JSON.parse(readFileSync(path.join(ROOT, 'screenshots.json'), 'utf8'))
+  // The previous test accepts both the bare-array and the `{screenshots: []}`
+  // shape, so this one has to read the same list from whichever shape is used.
+  const declared = Array.isArray(parsed) ? parsed : parsed.screenshots
+  assert.ok(Array.isArray(declared), 'screenshots.json must expose a list')
   for (const relative of declared) {
     for (const readme of ['README.md', 'README.zh-CN.md']) {
       const source = readFileSync(path.join(ROOT, readme), 'utf8')

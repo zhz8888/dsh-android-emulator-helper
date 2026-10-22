@@ -185,3 +185,18 @@ test('an option label that declares no text in one language is reported', () => 
 test('a select without an option label is not reported', () => {
   assert.deepEqual(gate.checkOptionLabels([field('systemImageVariant', 'select', { options: ['default'] })], { en: {}, zh: {} }), [])
 })
+
+test('the shipped gate runs its whole comparison as a subprocess', async () => {
+  // The four pure checks used by the gate are tested above; this is the only
+  // test that executes `main()`, the code path `pnpm run check` actually relies
+  // on. A deleted check call in main() would otherwise stay green here.
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const path = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const { stdout } = await promisify(execFile)(process.execPath, [path.join(ROOT, 'scripts', 'check-bundle.mjs')], {
+    cwd: ROOT,
+  })
+  assert.match(stdout, /check-bundle: OK/)
+})

@@ -183,6 +183,7 @@ exit 0
   })
   return {
     rt,
+    stateDir,
     argv: async () => (await readFile(path.join(stateDir, 'argv.log'), 'utf8').catch(() => '')).split('\n').filter(Boolean),
     setScreen: async (xml) => {
       await writeFile(path.join(stateDir, 'screen.xml'), xml, 'utf8')
@@ -646,7 +647,7 @@ test('blockerHint explains an unauthorized device and stays silent when all are 
 test('starting an emulator that stays unauthorized reports the state, not a bare timeout', { skip: process.platform === 'win32' }, async () => {
   // The fake emulator starts and stays alive; adb reports the new serial as
   // unauthorized and never as `device`.
-  const { rt } = await fakeAdb({
+  const harness = await fakeAdb({
     devices: 'List of devices attached\n\n',
     devicesAfterStart: 'List of devices attached\nemulator-5556          unauthorized transport_id:3\n\n',
     emulatorScript: [
@@ -656,12 +657,16 @@ test('starting an emulator that stays unauthorized reports the state, not a bare
       '  exit 0',
       'fi',
       'touch "__STATE__/started"',
+      'echo $$ > "__STATE__/emulator.pid"',
       'sleep 8',
       'exit 0',
       '',
     ].join('\n'),
   })
-  const error = await startEmulator(rt, { avd: 'Fake_AVD', timeoutMs: 1_000 }).then(
+  // The first devices poll races the fake emulator's `touch`; the test is about
+  // the error text, so the marker is placed before the start instead.
+  await writeFile(path.join(harness.stateDir, 'started'), '', 'utf8')
+  const error = await startEmulator(harness.rt, { avd: 'Fake_AVD', timeoutMs: 1_000 }).then(
     () => undefined,
     (thrown) => thrown,
   )
@@ -671,4 +676,13 @@ test('starting an emulator that stays unauthorized reports the state, not a bare
   assert.match(error.message, /Timed out waiting for Android Emulator to boot/)
   assert.match(error.message, /emulator-5556:unauthorized/)
   assert.match(error.message, /Accept the RSA prompt on screen/)
+  // The fake must not outlive the test.
+  const pid = Number((await readFile(path.join(harness.stateDir, 'emulator.pid'), 'utf8').catch(() => '')).trim())
+  if (Number.isInteger(pid) && pid > 0) {
+    try {
+      process.kill(pid, 'SIGKILL')
+    } catch {
+      // The fake had already exited.
+    }
+  }
 })

@@ -89,6 +89,9 @@ function fakeContext(options = {}) {
     // Cordis exposes every registered service both through `ctx.get(name)` and
     // as a `ctx.<name>` property; the plugin uses both forms.
     ...services,
+    // The settings policy is registered against the plugin's fiber so it is
+    // disposed with the entry; the stand-in only has to be identity-stable.
+    fiber: { id: 'test-fiber' },
     logger: {
       info() {},
       warn: (...args) => record.warnings.push(args.join(' ')),
@@ -168,14 +171,15 @@ test('argument schemas carry the shared target fields where the original had the
   ])
 })
 
-test('the tool result renderer produces text blocks and never leaks undefined', () => {
+test('the tool result renderer renders values without leaking undefined', () => {
   const { ctx, record } = fakeContext()
   apply(ctx, configWith())
   for (const tool of record.tools) {
-    const blocks = tool.output.render({}, { ok: true })
+    const blocks = tool.output.render({}, { ok: true, missing: undefined, count: 1 })
     assert.ok(Array.isArray(blocks) && blocks.length >= 1, `${tool.name} renderer must return blocks`)
     assert.equal(blocks[0].type, 'text')
     assert.match(blocks[0].text, /"ok": true/)
+    assert.doesNotMatch(blocks[0].text, /undefined/, `${tool.name} must not render undefined`)
   }
 })
 
@@ -223,21 +227,50 @@ test('apply registers exactly the two settings routes under /api', () => {
   )
 })
 
-test('a deployment without the optional services still loads and warns', () => {
-  const { ctx, record } = fakeContext({ omit: ['skills', 'commands', 'connection'] })
+test('apply turns the settings service\'s automatic page generation off', () => {
+  // Without this policy a deployment that renders pages from the schema shows a
+  // second, generated form for the same entry beside the Plugins-page form.
+  const calls = []
+  const { ctx } = fakeContext({
+    services: {
+      settings: {
+        configure(options, fiber) {
+          calls.push({ options, fiber })
+          return () => {}
+        },
+      },
+    },
+  })
   apply(ctx, configWith())
-  assert.equal(record.tools.length, EXPECTED_TOOLS.length)
-  assert.equal(record.skills.length, 0)
-  assert.equal(record.commands.length, 0)
-  assert.equal(record.routes.length, 0)
+  assert.deepEqual(calls.map((call) => call.options), [{ auto: false }])
+  assert.equal(calls[0]?.fiber, ctx.fiber, 'the policy must be tied to the plugin fiber')
 })
 
-test('every settings field reaches the tools through the live config', () => {
+test('a deployment without the optional connection service still loads and warns', () => {
+  // `connection` is present but exposes no exact Fetch registry: that is the
+  // one deployment shape where the plugin must boot and log a warning, and the
+  // fake `inject` only runs the callback for services that exist.
+  const { ctx, record } = fakeContext({ services: { connection: {} } })
+  apply(ctx, configWith())
+  assert.equal(record.tools.length, EXPECTED_TOOLS.length)
+  assert.equal(record.routes.length, 0)
+  assert.ok(
+    record.warnings.some((message) => /exposes no exact Fetch route registry/.test(message)),
+    'the missing route registry must be reported',
+  )
+})
+
+test('apply registers every documented tool and the schema declares every field', () => {
   const { ctx, record } = fakeContext()
   apply(ctx, configWith({ apiLevel: '36' }))
   assert.equal(record.tools.length, EXPECTED_TOOLS.length)
-  // The projection itself is covered by settings.test.js; this asserts the
-  // host half consumes the schema that declares every field.
+  assert.deepEqual(
+    record.tools.map((tool) => tool.name),
+    EXPECTED_TOOLS,
+  )
+  // The live config is consumed per call by createRuntime; `runtime.test.js`
+  // pins that projection. This test only pins that the schema the entry
+  // validates has one node per documented field.
   const json = Config.toJSON()
   assert.equal(Object.keys(json.refs[json.uid].dict).length, FIELD_KEYS.length)
 })

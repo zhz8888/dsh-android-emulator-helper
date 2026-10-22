@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../lib/runtime.js'
 import { readSettings, systemImagePackage } from '../lib/settings.js'
-import { inside } from '../lib/util/path.js'
+import { inside, insideForWrite } from '../lib/util/path.js'
 import { parseAdbDevices, pickDevice } from '../lib/providers/device.js'
-import { createAvd, ensureDevice, startEmulator, stopEmulator } from '../lib/providers/avd.js'
+import { bootTimeoutMs, createAvd, ensureDevice, startEmulator, stopEmulator } from '../lib/providers/avd.js'
 import { logs } from '../lib/providers/logs.js'
 import { shot } from '../lib/providers/screenshot.js'
 import { preflightOk } from '../lib/providers/preflight.js'
@@ -71,16 +71,6 @@ async function argvs(file) {
  */
 async function argvWith(file, needle) {
   return (await argvs(file)).find((argv) => argv.some((arg) => arg.includes(needle)))
-}
-
-/**
- * How many recorded invocations mentioned `needle`.
- *
- * A boot wait re-polls on a fixed 2000 ms cadence, so the poll count is the
- * one clock-free way to observe how long the deadline actually was.
- */
-async function countInvocation(file, needle) {
-  return (await argvs(file)).filter((argv) => argv.some((arg) => arg.includes(needle))).length
 }
 
 /**
@@ -207,6 +197,27 @@ test('a parent-directory traversal is refused', () => {
 test('a sibling directory sharing the workspace prefix is refused', () => {
   // A bare `startsWith(base)` containment check would let this through.
   assert.throws(() => inside('/work/project', '/work/project-evil/shot.png'), /escapes the session workspace/)
+})
+
+test('case-insensitive volumes compare the workspace case-insensitively', { skip: process.platform !== 'darwin' && process.platform !== 'win32' }, () => {
+  // The default macOS and Windows volumes treat these as the same directory;
+  // a byte-wise prefix test would reject a path the user really opened.
+  assert.equal(inside('/work/Project', '/work/project/shot.png'), path.resolve('/work/project/shot.png'))
+})
+
+test('a symbolic link inside the workspace cannot carry a write outside', { skip: process.platform === 'win32' }, async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), 'aemh-ws-'))
+  const outside = await mkdtemp(path.join(tmpdir(), 'aemh-out-'))
+  try {
+    await symlink(outside, path.join(workspace, 'link'), 'dir')
+    await assert.rejects(() => insideForWrite(workspace, 'link/escaped.txt'), /symbolic link/)
+    assert.equal(await insideForWrite(workspace, 'safe/file.txt'), path.join(workspace, 'safe', 'file.txt'))
+    await mkdir(path.join(workspace, 'safe'), { recursive: true })
+    await assert.rejects(() => insideForWrite(workspace, 'link'), /symbolic link/)
+  } finally {
+    await rm(workspace, { recursive: true, force: true })
+    await rm(outside, { recursive: true, force: true })
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -580,6 +591,35 @@ test('the configured default AVD may still fall back to the first one', async ()
   assert.deepEqual(argv, ['-avd', 'Alpha_AVD'])
 })
 
+test('a stale configured serial fails instead of starting another emulator', async () => {
+  // `pickDevice` treats defaultSerial as an explicit request. Swallowing its
+  // "not found" error used to start a fresh emulator even though a ready USB
+  // device was attached, and the caller was never told which target it got.
+  const { rt, paths } = await toolchain({
+    adb: (p) =>
+      adbBody({
+        argvFile: p.argvFile,
+        devices: ['R58M12ABCDE            device usb:1 transport_id:2'],
+      }),
+    emulator: (p) => `if [ "$1" = "-list-avds" ]; then echo Alpha_AVD; exit 0; fi\n${record(p.spawnArgv)}\nexit 1`,
+  })
+  rt.settings.defaultSerial = 'emulator-9999'
+  await assert.rejects(() => ensureDevice(rt, {}), /Android device not found: emulator-9999/)
+  assert.deepEqual(await argvs(paths.spawnArgv), [], 'no emulator may be started when a ready device exists')
+})
+
+test('a partial AVD name does not silently select another AVD', async () => {
+  // The contract says an explicitly requested AVD that does not exist must
+  // fail. Substring matching turned `avd: "Pixel"` into `Pixel_10` and told the
+  // caller nothing about the substitution.
+  const { rt, paths } = await toolchain({
+    adb: ADB_EMPTY,
+    emulator: (p) => `if [ "$1" = "-list-avds" ]; then echo Pixel_10; exit 0; fi\n${record(p.spawnArgv)}\nexit 1`,
+  })
+  await assert.rejects(() => startEmulator(rt, { avd: 'Pixel' }), /Android AVD "Pixel" not found/)
+  assert.deepEqual(await argvs(paths.spawnArgv), [], 'no emulator may be spawned for a partial name')
+})
+
 test('an exact AVD name wins over a longer name that contains it', async () => {
   // `includes` alone resolves "Pixel" to "Pixel_10" even when an AVD literally
   // called "Pixel" exists, which is the same wrong-device failure by another route.
@@ -593,27 +633,17 @@ test('an exact AVD name wins over a longer name that contains it', async () => {
   assert.deepEqual(argv, ['-avd', 'Pixel'])
 })
 
-test('bootTimeoutSeconds is seconds and reaches the wait as milliseconds', { timeout: 30_000 }, async () => {
-  // A device that never finishes booting, so the wait runs its whole deadline
-  // out. `waitForReadyTarget` polls every 2000 ms, which makes the poll count a
-  // clock-free reading of the deadline: 3000 ms permits exactly two polls
-  // (t≈0 and t≈2000), while a deadline of 3 ms — what the setting would produce
-  // without `* 1000` — permits one.
-  const { rt, paths } = await toolchain({
-    adb: (p) => adbBody({ argvFile: p.argvFile, devices: [EMULATOR_DEVICE], boot: '0' }),
-    config: { bootTimeoutSeconds: { get: () => 3 } },
-  })
-  await assert.rejects(
-    () => ensureDevice(rt, { serial: 'emulator-5554' }),
-    /Timed out waiting for Android Emulator to boot \(emulator-5554\)/,
-  )
-  assert.equal(await countInvocation(paths.argvFile, 'getprop'), 2)
+test('bootTimeoutSeconds is seconds and the call override is milliseconds', () => {
+  // Pinned directly rather than by counting polls: a poll count depends on the
+  // machine's timing and on the poll cadence, neither of which is this contract.
+  assert.equal(bootTimeoutMs(undefined, 3), 3_000)
+  assert.equal(bootTimeoutMs(100, 5), 100)
+  assert.throws(() => bootTimeoutMs(0, 5), /Invalid timeoutMs: 0/)
+  assert.throws(() => bootTimeoutMs(-1, 5), /Invalid timeoutMs: -1/)
 })
 
 test('an explicit timeoutMs overrides the bootTimeoutSeconds setting', { timeout: 30_000 }, async () => {
-  // A 100 ms deadline admits exactly one poll; the 5000 ms setting it overrides
-  // would have admitted three.
-  const { rt, paths } = await toolchain({
+  const { rt } = await toolchain({
     adb: (p) => adbBody({ argvFile: p.argvFile, devices: [EMULATOR_DEVICE], boot: '0' }),
     config: { bootTimeoutSeconds: { get: () => 5 } },
   })
@@ -621,7 +651,6 @@ test('an explicit timeoutMs overrides the bootTimeoutSeconds setting', { timeout
     () => ensureDevice(rt, { serial: 'emulator-5554', timeoutMs: 100 }),
     /Timed out waiting for Android Emulator to boot/,
   )
-  assert.equal(await countInvocation(paths.argvFile, 'getprop'), 1)
 })
 
 test('a new emulator stuck in unauthorized burns the boot timeout, then names the state', { timeout: 30_000 }, async () => {
@@ -641,6 +670,9 @@ test('a new emulator stuck in unauthorized burns the boot timeout, then names th
       `if [ "$1" = "-list-avds" ]; then echo Alpha_AVD; exit 0; fi\n: > ${JSON.stringify(p.spawnFlag)}\necho $$ > ${JSON.stringify(p.pidFile)}\necho "INFO  | starting"\nexec sleep 60`,
     config: { bootTimeoutSeconds: { get: () => 1 } },
   })
+  // Pre-create the marker the fake adb reads: the start polls immediately, so
+  // the assertion must not depend on the fake emulator winning that race.
+  await writeFile(paths.spawnFlag, '', 'utf8')
   try {
     await assert.rejects(
       () => startEmulator(rt, {}),
@@ -676,7 +708,8 @@ test('the default system image is the android-35 default image', () => {
   const settings = readSettings({}, {})
   assert.equal(settings.apiLevel, '35')
   assert.equal(settings.systemImageVariant, 'default')
-  assert.equal(systemImagePackage(settings), 'system-images;android-35;default;arm64-v8a')
+  const expectedAbi = process.arch === 'arm64' ? 'arm64-v8a' : 'x86_64'
+  assert.equal(systemImagePackage(settings), `system-images;android-35;default;${expectedAbi}`)
 })
 
 test('create_avd answers avdmanager down the "no" path and surfaces its refusal', async () => {

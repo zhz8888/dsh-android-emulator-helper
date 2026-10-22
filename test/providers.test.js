@@ -165,3 +165,28 @@ test('the diagnostic fix hints name the plugin page in the Plugins panel', () =>
   const source = readFileSync(new URL('../lib/providers/preflight.js', import.meta.url), 'utf8')
   assert.equal((source.match(/\$\{PAGE_LOCATION\}/g) ?? []).length, 2, 'both fix hints must interpolate PAGE_LOCATION')
 })
+
+test('a failed acceleration check blocks the automatic-start fallback', async () => {
+  const { preflightOk } = await import('../lib/providers/preflight.js')
+  const checks = [
+    { name: 'emulator', ok: true },
+    { name: 'Android Virtual Devices', ok: true },
+    { name: 'Emulator acceleration', ok: false },
+    { name: 'ADB devices', ok: false },
+  ]
+  assert.equal(preflightOk(checks, { hasReadyTarget: false, autoStartEmulator: true }), false)
+})
+
+test('APK selection understands a flavor directory', () => {
+  const hits = [
+    '/p/app/build/outputs/apk/freeDebug/app-free-debug.apk',
+    '/p/app/build/outputs/apk/paidDebug/app-paid-debug.apk',
+  ]
+  assert.equal(pickApk(hits, 'debug'), '/p/app/build/outputs/apk/freeDebug/app-free-debug.apk')
+})
+
+test('a device serial is reduced to a filesystem-safe filename fragment', async () => {
+  const { fileSafe } = await import('../lib/providers/screenshot.js')
+  assert.equal(fileSafe('emulator-5554'), 'emulator-5554')
+  assert.equal(fileSafe('192.168.1.5:5555'), '192.168.1.5_5555')
+})

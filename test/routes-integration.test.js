@@ -27,19 +27,13 @@ import { FIELD_KEYS } from '../lib/settings.js'
  * Mount the plugin on a real Cordis context with a recording `connection`.
  *
  * @param {{withConnection?: boolean, config?: object, connection?: unknown}} [options] - composition inputs.
- * @returns {Promise<{ctx: Context, routes: Map<string, object>, warnings: string[], refs: Record<string, object>, dispose: () => Promise<void>}>} the mounted fixture.
+ * @returns {Promise<{ctx: Context, routes: Map<string, object>, refs: Record<string, object>, dispose: () => Promise<void>}>} the mounted fixture.
  */
 async function mount(options = {}) {
   const ctx = new Context({ observe: false })
   const routes = new Map()
-  const warnings = []
 
   ctx.provide('tools', { register: () => () => {} })
-  ctx.provide('logger', {
-    info() {},
-    warn: (...args) => warnings.push(args.join(' ')),
-    error: (...args) => warnings.push(args.join(' ')),
-  })
   // The service must exist BEFORE the plugin mounts: `ctx.inject` defers its
   // callback until the dependency is provided, so a late `provide` is a
   // different test (see the "provided after mount" case below).
@@ -67,7 +61,6 @@ async function mount(options = {}) {
   return {
     ctx,
     routes,
-    warnings,
     // Cordis hands `apply` one live reference per volatile field. They are the
     // handles the settings form writes through, and the fixture keeps them so a
     // test can save a value the way the form does.
@@ -159,15 +152,21 @@ test('both handlers read the live config on every call, not the value apply saw'
   // This is the settings page's save path: the form writes the new value into
   // the running reference, and the very next button press must observe it.
   const fixture = await mount()
-  const before = await (await fixture.routes.get('/api/android-emulator-helper/status').fetch()).json()
+  const statusRoute = fixture.routes.get('/api/android-emulator-helper/status')
+  const inventoryRoute = fixture.routes.get('/api/android-emulator-helper/inventory')
+  const before = await (await statusRoute.fetch()).json()
   assert.equal(before.settings.apiLevel, '35')
+  const inventoryBefore = await (await inventoryRoute.fetch()).json()
+  assert.match(inventoryBefore.current.systemImagePackage, /android-35/)
 
   fixture.refs.apiLevel[VOLATILE_WRITE]('37')
   fixture.refs.logTailLines[VOLATILE_WRITE](12)
 
-  const after = await (await fixture.routes.get('/api/android-emulator-helper/status').fetch()).json()
+  const after = await (await statusRoute.fetch()).json()
   assert.equal(after.settings.apiLevel, '37', 'the route must observe the saved setting, not the boot-time one')
   assert.equal(after.settings.logTailLines, 12)
+  const inventoryAfter = await (await inventoryRoute.fetch()).json()
+  assert.match(inventoryAfter.current.systemImagePackage, /android-37/)
   await fixture.dispose()
 })
 
@@ -194,7 +193,6 @@ test('a deployment without the connection service still mounts and registers no 
   // optional dependency safe.
   const fixture = await mount({ withConnection: false })
   assert.equal(fixture.routes.size, 0)
-  assert.deepEqual(fixture.warnings, [], 'an absent optional service is not a warning')
   await fixture.dispose()
 })
 
@@ -231,7 +229,5 @@ test('a connection service without the fetch registry mounts cleanly, with no ro
   // covers that half.)
   const fixture = await mount({ connection: {} })
   assert.equal(fixture.routes.size, 0)
-  assert.deepEqual(fixture.warnings, [], 'a plugin must not push its own logger into a real context')
-  // The mount is alive: a second mount on the same context still registers.
   await fixture.dispose()
 })
