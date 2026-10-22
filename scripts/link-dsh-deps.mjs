@@ -39,8 +39,14 @@ const profileDir = arg('profile', path.join(process.env.HOME ?? '', '.dsh', 'pro
 
 
 if (process.argv.includes('--clean')) {
-  rmSync(TARGET, { recursive: true, force: true })
-  console.log(`removed ${path.relative(ROOT, TARGET)}`)
+  // Only remove the links this script creates. `node_modules/@deepseek-ai` also
+  // holds pnpm's own dependency links — `dsh-client-ui-primitives` among them,
+  // which the client half's type gate needs — so deleting the directory would
+  // break `pnpm run typecheck` until a reinstall.
+  for (const name of PACKAGES) {
+    rmSync(path.join(TARGET, name), { recursive: true, force: true })
+    console.log(`removed ${path.relative(ROOT, path.join(TARGET, name))}`)
+  }
   process.exit(0)
 }
 

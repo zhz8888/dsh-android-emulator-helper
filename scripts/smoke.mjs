@@ -20,6 +20,7 @@ import { discover } from '../lib/providers/project.js'
 
 const withEmulator = process.argv.includes('--with-emulator')
 const config = {}
+let failures = 0
 
 /** Run one named step, printing its result and continuing on failure. */
 async function step(name, run) {
@@ -29,6 +30,7 @@ async function step(name, run) {
     console.log(JSON.stringify(value, null, 2))
     return { ok: true, value }
   } catch (error) {
+    failures += 1
     console.log(`FAILED: ${error instanceof Error ? error.message : String(error)}`)
     return { ok: false, error }
   }
@@ -48,6 +50,28 @@ if (withEmulator) {
   const { startEmulator } = await import('../lib/providers/avd.js')
   const started = await step('android_start_emulator', () => startEmulator(runtime, {}))
   if (started.ok) {
+    const serial = started.value.serial
+    // The reason this layer exists: prove the project → build → install → launch
+    // cycle the plugin is for, not just the discovery calls around it.
+    const { create } = await import('../lib/providers/project.js')
+    const created = await step('android_create_app', () =>
+      create(runtime, { name: 'SmokeApp', dir: '.tmp-smoke-app', overwrite: true }),
+    )
+    const { buildApp } = await import('../lib/providers/build.js')
+    const built = await step('android_build_app', () =>
+      buildApp(runtime, { projectDir: '.tmp-smoke-app', timeoutMs: 600_000 }),
+    )
+    if (created.ok && built.ok && built.value.apkPath && built.value.applicationId) {
+      const { install, launch } = await import('../lib/providers/app.js')
+      await step('android_install_app', () =>
+        install(runtime, { serial, apkPath: built.value.apkPath, timeoutMs: 120_000 }),
+      )
+      await step('android_launch_app', () =>
+        launch(runtime, { serial, applicationId: built.value.applicationId, timeoutMs: 60_000 }),
+      )
+      const { status } = await import('../lib/providers/ui.js')
+      await step('android_ui_status', () => status(runtime))
+    }
     const { shot } = await import('../lib/providers/screenshot.js')
     await step('android_screenshot', async () => {
       const capture = await shot(runtime, {})
@@ -59,11 +83,11 @@ if (withEmulator) {
       return { lines: result.lines, characters: result.output.length }
     })
     const { stopEmulator } = await import('../lib/providers/avd.js')
-    await step('android_stop_emulator', () => stopEmulator(runtime, { serial: started.value.serial }))
+    await step('android_stop_emulator', () => stopEmulator(runtime, { serial }))
   }
 }
 
 const ok = preflightResult.ok
 console.log(`\npreflight verdict: ${ok ? 'ready' : 'not ready'}`)
 console.log('Checks that need a physical device or an AVD stay red until one is running.')
-process.exit(0)
+process.exit(failures === 0 ? 0 : 1)

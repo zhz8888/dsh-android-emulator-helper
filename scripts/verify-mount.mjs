@@ -4,7 +4,7 @@ import { rmSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import { ToolRuntime } from '@deepseek-ai/dsh-tools'
+import { ToolRuntime, validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import * as plugin from '../lib/index.js'
 
 /** Repository root, so the scratch data directory is anchored to the project. */
@@ -84,6 +84,27 @@ const toolNames = () =>
 const visible = toolNames().filter((name) => name.startsWith('android_'))
 check('23 android_* tools are registered in the real registry', visible.length === 23, visible.length)
 
+// Every compiled definition must declare an object result schema. A tool whose
+// schema is missing or malformed would otherwise only surface on the call that
+// happens to succeed, which is exactly what this hermetic gate cannot produce
+// for the device-backed tools.
+const schemaProblems = []
+for (const name of visible) {
+  const definition = tools.get(name)
+  const schema = definition?.output?.schema
+  if (typeof schema !== 'object' || schema === null) {
+    schemaProblems.push(`${name}: no result schema`)
+    continue
+  }
+  const violations = validateJsonSchemaValue(schema, {}, 'value')
+  if (violations.length > 0) schemaProblems.push(`${name}: ${violations.join('; ')}`)
+}
+check(
+  'every tool declares an object result schema the registry can validate',
+  schemaProblems.length === 0,
+  schemaProblems.slice(0, 3),
+)
+
 // ── dispatch through the real registry ───────────────────────────────────────
 // A caller signal is part of the execution contract; the loop always supplies one.
 const signal = new AbortController().signal
@@ -137,11 +158,15 @@ const DEVICE_TOOLS = [
 for (const [name, args] of DEVICE_TOOLS) {
   const result = await tools.execute({ name, arguments: args, callId: `verify-${++call}`, signal })
   // A provider-level refusal is the expected outcome; a registry-level schema
-  // rejection is not. Distinguish them by the message the registry prefixes.
+  // rejection is not. The registry's result-schema error message is "returned
+  // invalid output", and an argument error is "invalid arguments"; both must
+  // fail this check instead of being read as "reached the provider".
   const text = result.content?.find((block) => block.type === 'text')?.text ?? ''
-  const schemaRejection = /invalid arguments|invalid result|schema/i.test(result.error?.message ?? '')
+  const schemaRejection = /invalid arguments|invalid result|returned invalid output|INVALID_TOOL_OUTPUT/i.test(
+    result.error?.message ?? '',
+  )
   check(
-    `${name} reached its provider without a schema mismatch`,
+    `${name} reached its provider without a schema rejection`,
     !schemaRejection,
     `isError=${result.isError === true} ${(result.error?.message ?? text).slice(0, 80)}`,
   )
@@ -175,6 +200,10 @@ check('disposing the plugin fiber unregisters every tool', afterDispose.length =
 await runtimeFiber.dispose()
 
 rmSync(scratch, { recursive: true, force: true })
+// `android_create_app` generates a real project into the repository; a gate that
+// leaves it behind turns a run artifact into something every later command has
+// to ignore.
+rmSync(path.join(ROOT, '.tmp-verify-mount'), { recursive: true, force: true })
 
 console.log(failures === 0 ? '\nverify-mount: OK' : `\nverify-mount: ${failures} failure(s)`)
 process.exit(failures === 0 ? 0 : 1)
