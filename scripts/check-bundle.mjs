@@ -4,6 +4,8 @@ import { FIELD_GROUPS, FIELD_KEYS, FIELDS, SETTINGS_NAMESPACE } from '../lib/set
 import { ROOT, loadBundle } from '../test/helpers/load-bundle.mjs'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+import * as hostIndex from '../lib/index.js'
 
 /**
  * Consistency gate for the browser bundle.
@@ -13,6 +15,11 @@ import path from 'node:path'
  * settings namespace are written twice. This script is the check that keeps the
  * two copies identical, plus the structural checks a host-side test cannot make
  * about a file the browser evaluates on its own.
+ *
+ * The invariants that read the bundle's exports are pure functions, exported so
+ * the test suite can exercise them against fixtures. The gate itself only runs
+ * when this file is the process entry point: importing it must not run the
+ * whole gate as a side effect.
  *
  * Run with `pnpm run check`.
  */
@@ -24,197 +31,416 @@ function fail(message) {
   failures.push(message)
 }
 
-const { registration, exported, required } = loadBundle()
-
-// --- bundle identity -------------------------------------------------------
-const manifest = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
-if (registration.id !== manifest.name) {
-  fail(`bundle id ${JSON.stringify(registration.id)} must equal the package name ${JSON.stringify(manifest.name)}`)
-}
-if (!Array.isArray(exported.inject) || exported.inject.length === 0) {
-  fail('the client bundle must export a non-empty inject list')
-}
-for (const name of ['apply', 'inject', 'NS', 'FIELD_META', 'GROUP_META', 'PLUGIN_SURFACE']) {
-  if (exported[name] === undefined) fail(`the client bundle must export ${name}`)
+/** Whether the value is a plain object usable as a dictionary. */
+function isRecord(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-// --- namespace agreement ---------------------------------------------------
-if (exported.NS !== SETTINGS_NAMESPACE) {
-  fail(`client namespace ${JSON.stringify(exported.NS)} must equal SETTINGS_NAMESPACE ${JSON.stringify(SETTINGS_NAMESPACE)}`)
-}
-const patch = readFileSync(path.join(ROOT, 'cordis.patch.yml'), 'utf8')
-if (!patch.includes(`id: ${SETTINGS_NAMESPACE}`)) {
-  fail(`cordis.patch.yml must mount a row whose id is ${SETTINGS_NAMESPACE}`)
-}
-
-// --- plugin surface agreement ---------------------------------------------
-// The form is not a Settings dialog section any more: it is a bundle's own
-// configuration on the Plugins page, in the `plugins.bundle.config` keyed slot.
-// That slot is keyed by the BUNDLE's package name — the value the plugin
-// manager's inventory compares against — so the key is the package name and
-// never the settings namespace above. The namespace is separately load-bearing:
-// it is the patch row id whose live form the page binds to.
-const clientSource = readFileSync(path.join(ROOT, 'lib', 'client.js'), 'utf8')
-const surface = exported.PLUGIN_SURFACE
-if (surface === undefined) {
-  fail('the client bundle must export PLUGIN_SURFACE')
-} else {
-  if (surface.slot !== 'plugins.bundle.config') {
-    fail(`the form must register into plugins.bundle.config, not ${JSON.stringify(surface.slot)}`)
+/**
+ * Every field kind must be one the halves actually handle.
+ *
+ * Both `lib/settings.js` and `lib/client.js` switch on `field.kind` with a
+ * `default:` branch that falls through to a plain text input, so a kind only
+ * one side knows does not fail — it degrades: the page renders a text box
+ * where a number was expected and the value is staged as a string.
+ *
+ * @param {Array<{key: string, kind: string}>} fields - field descriptors.
+ * @param {string[]} kinds - the kind names the client half handles.
+ * @returns {string[]} failure messages; empty when the invariant holds.
+ */
+export function checkFieldKinds(fields, kinds) {
+  if (!Array.isArray(kinds) || kinds.length === 0) {
+    return ['the client bundle must export FIELD_KINDS']
   }
-  if (surface.key !== manifest.name) {
-    fail(
-      `the plugins.bundle.config key ${JSON.stringify(surface.key)} must equal the package name ${JSON.stringify(manifest.name)}`,
-    )
-  }
-}
-const packageNameConstant = /const PACKAGE_NAME = "([^"]+)"/.exec(clientSource)
-if (packageNameConstant === null) {
-  fail('lib/client.js must declare PACKAGE_NAME for the plugins.bundle.config key')
-} else if (packageNameConstant[1] !== manifest.name) {
-  fail(`lib/client.js PACKAGE_NAME ${JSON.stringify(packageNameConstant[1])} must equal the package name ${JSON.stringify(manifest.name)}`)
-}
-if (!clientSource.includes('name: "plugins.bundle.config"')) {
-  fail('lib/client.js must register into plugins.bundle.config')
-}
-if (clientSource.includes('"settings.section"')) {
-  fail('lib/client.js must not register into the Settings dialog: plugin pages live on the Plugins page')
-}
-
-// --- field table agreement -------------------------------------------------
-const clientFields = exported.FIELD_META ?? []
-if (clientFields.length !== FIELD_KEYS.length) {
-  fail(`client declares ${clientFields.length} fields but the host schema declares ${FIELD_KEYS.length}`)
-}
-const hostOrder = [...FIELDS.keys()]
-const clientOrder = clientFields.map((field) => field.key)
-if (hostOrder.join(',') !== clientOrder.join(',')) {
-  fail(`field order differs:\n  host:   ${hostOrder.join(', ')}\n  client: ${clientOrder.join(', ')}`)
-}
-for (const field of clientFields) {
-  const host = FIELDS.get(field.key)
-  if (host === undefined) {
-    fail(`client declares unknown field "${field.key}"`)
-    continue
-  }
-  if (host.kind !== field.kind) {
-    fail(`field "${field.key}": host kind ${host.kind} != client kind ${field.kind}`)
-  }
-  if (host.options !== undefined) {
-    const hostOptions = host.options.join('|')
-    const clientOptions = (field.options ?? []).join('|')
-    if (hostOptions !== clientOptions) {
-      fail(`field "${field.key}": host options [${hostOptions}] != client options [${clientOptions}]`)
+  const problems = []
+  for (const field of fields ?? []) {
+    if (!kinds.includes(field.kind)) {
+      problems.push(
+        `field "${field.key}": kind ${JSON.stringify(field.kind)} is not one of the kinds the client handles (${kinds.join(', ')})`,
+      )
     }
   }
+  return problems
 }
 
-// --- group agreement -------------------------------------------------------
-// The page draws one card per group and reads its heading from `group.<id>`.
-// The two tables are written twice, so they have to agree key by key, in order.
-const clientGroups = exported.GROUP_META ?? []
-const hostGroupIds = FIELD_GROUPS.map((group) => group.id)
-const clientGroupIds = clientGroups.map((group) => group.id)
-if (hostGroupIds.join(',') !== clientGroupIds.join(',')) {
-  fail(`group order differs:\n  host:   ${hostGroupIds.join(', ')}\n  client: ${clientGroupIds.join(', ')}`)
-}
-const clientFieldsByKey = new Map((exported.FIELD_META ?? []).map((field) => [field.key, field]))
-for (const group of clientGroups) {
-  const hostGroup = FIELD_GROUPS.find((item) => item.id === group.id)
-  if (hostGroup === undefined) {
-    fail(`client declares unknown group "${group.id}"`)
-    continue
+/**
+ * Every suggestion source a field names must be one the client provides.
+ *
+ * `suggest` is a client-only concept: it indexes the suggestions object the
+ * client builds from the discovery route, and a typo yields `undefined`, which
+ * becomes an empty list. The datalist then simply disappears, with no error
+ * anywhere — the field still renders, just without its suggestions.
+ *
+ * @param {Array<{key: string, suggest?: string}>} fields - field descriptors.
+ * @param {string[]} sources - the suggestion-source names the client provides.
+ * @returns {string[]} failure messages; empty when the invariant holds.
+ */
+export function checkSuggestSources(fields, sources) {
+  if (!Array.isArray(sources) || sources.length === 0) {
+    return ['the client bundle must export SUGGEST_SOURCES']
   }
-  const hostFields = hostGroup.fields.map((field) => field.key).join(',')
-  if (hostFields !== group.fields.join(',')) {
-    fail(`group "${group.id}" holds different fields:\n  host:   ${hostFields}\n  client: ${group.fields.join(',')}`)
-  }
-}
-
-// --- user-visible text agreement -------------------------------------------
-// Every heading, hint and label the page can render is written twice. Comparing
-// only the keys would let a reworded or mistranslated label ship: the form
-// would still render, just with text that no longer matches the host. Compare
-// the text itself, in both languages.
-/** Compare two `{en, zh}` text objects, reporting every difference. */
-function compareText(what, hostText, clientText) {
-  for (const lang of ['en', 'zh']) {
-    const host = hostText?.[lang]
-    const client = clientText?.[lang]
-    if (typeof host !== 'string' || host.length === 0) fail(`${what}: the host declares no ${lang} text`)
-    else if (host !== client) {
-      fail(`${what}: ${lang} text differs\n  host:   ${host}\n  client: ${client === undefined ? '(missing)' : client}`)
+  const problems = []
+  for (const field of fields ?? []) {
+    const source = field.suggest
+    if (source === undefined || source === null || source === '') continue
+    if (!sources.includes(source)) {
+      problems.push(
+        `field "${field.key}": suggests ${JSON.stringify(source)}, which the client does not provide (${sources.join(', ')})`,
+      )
     }
   }
+  return problems
 }
-for (const group of FIELD_GROUPS) {
-  const client = clientGroups.find((item) => item.id === group.id)
-  if (client === undefined) continue
-  compareText(`group "${group.id}" title`, group.title, client.title)
-  compareText(`group "${group.id}" hint`, group.hint, client.hint)
-  for (const field of group.fields) {
-    const clientField = clientFieldsByKey.get(field.key)
-    if (clientField === undefined) continue
-    compareText(`field "${field.key}" label`, field.label, clientField.label)
-    compareText(`field "${field.key}" hint`, field.hint, clientField.hint)
-    if ((field.placeholder ?? '') !== (clientField.placeholder ?? '')) {
-      fail(`field "${field.key}": placeholder differs\n  host:   ${field.placeholder ?? '(none)'}\n  client: ${clientField.placeholder ?? '(none)'}`)
+
+/**
+ * The two languages must declare the same dictionary keys.
+ *
+ * The client holds two hand-written literals, `en` and `zh`. The group and
+ * field keys are generated symmetrically, but the fixed ones are not: drop one
+ * and the page renders that key as a literal string, because the locale
+ * binding returns the key itself for a missing entry.
+ *
+ * @param {{en: Record<string, unknown>, zh: Record<string, unknown>}} dictionary - the dictionary.
+ * @returns {string[]} failure messages; empty when the invariant holds.
+ */
+export function checkDictionarySymmetry(dictionary) {
+  const en = dictionary?.en
+  const zh = dictionary?.zh
+  if (!isRecord(en) || !isRecord(zh)) {
+    return ['the client bundle must export FIXED_DICTIONARY']
+  }
+  const problems = []
+  for (const key of Object.keys(en)) {
+    if (!(key in zh)) {
+      problems.push(`the zh dictionary does not declare ${JSON.stringify(key)}, which the en dictionary declares`)
     }
   }
-}
-// `locale/*.json` carries the package metadata the plugin list reads, so both
-// languages must describe the same package with the same keys.
-const localeFiles = {}
-for (const name of ['en', 'zh']) {
-  localeFiles[name] = JSON.parse(readFileSync(path.join(ROOT, 'locale', `${name}.json`), 'utf8'))
-}
-for (const key of new Set([...Object.keys(localeFiles.en), ...Object.keys(localeFiles.zh)])) {
-  if (!(key in localeFiles.en)) fail(`locale/zh.json declares "${key}" but locale/en.json does not`)
-  if (!(key in localeFiles.zh)) fail(`locale/en.json declares "${key}" but locale/zh.json does not`)
-}
-for (const name of ['en', 'zh']) {
-  if (typeof localeFiles[name].meta?.title !== 'string' || localeFiles[name].meta.title.length === 0) {
-    fail(`locale/${name}.json must declare meta.title`)
-  }
-  if (typeof localeFiles[name].meta?.description !== 'string' || localeFiles[name].meta.description.length === 0) {
-    fail(`locale/${name}.json must declare meta.description`)
-  }
-}
-// The plugin's display name has exactly one source: `locale/*.json`, which the
-// plugin list and the plugin detail page both read. The bundle used to draw its
-// own heading and register a Settings nav label, which is why this gate used to
-// compare a second copy; that copy is gone with the Settings section.
-
-// --- route agreement -------------------------------------------------------
-const hostSource = readFileSync(path.join(ROOT, 'lib', 'index.js'), 'utf8')
-const hostPrefix = /const ROUTE_PREFIX = '([^']+)'/.exec(hostSource)?.[1]
-if (hostPrefix === undefined) {
-  fail('lib/index.js must declare ROUTE_PREFIX')
-} else {
-  for (const route of [`${hostPrefix}/status`, `${hostPrefix}/inventory`]) {
-    if (!clientSource.includes(`"${route}"`)) fail(`the client page does not call the host route ${route}`)
-    if (!hostSource.includes(`\${ROUTE_PREFIX}/${route.split('/').at(-1)}`)) {
-      fail(`lib/index.js does not register ${route}`)
+  for (const key of Object.keys(zh)) {
+    if (!(key in en)) {
+      problems.push(`the en dictionary does not declare ${JSON.stringify(key)}, which the zh dictionary declares`)
     }
   }
+  return problems
 }
 
-// --- client bundle hygiene -------------------------------------------------
-if (/^\s*(import|export)\s/m.test(clientSource)) {
-  fail('the client bundle must be a classic script: no import/export statements')
-}
-for (const specifier of new Set(required)) {
-  if (!['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'].includes(specifier)) {
-    console.warn(`note: the bundle requires ${specifier}; confirm it is a shell static module or declared in dsh.client.external`)
+/**
+ * Every declared option label must exist as a dictionary entry in both languages.
+ *
+ * A field's `optionLabel` map gives a readable name to an option value. The
+ * client generates one dictionary entry per declared label and looks the entry
+ * up by key, so a label without a generated entry is a silent no-op: the select
+ * falls back to the raw option value.
+ *
+ * @param {Array<{key: string, optionLabel?: Record<string, {en: string, zh: string}>}>} fields - field descriptors.
+ * @param {{en: Record<string, string>, zh: Record<string, string>}} dictionary - the dictionary the page renders from.
+ * @returns {string[]} failure messages; empty when the invariant holds.
+ */
+export function checkOptionLabels(fields, dictionary) {
+  const en = dictionary?.en
+  const zh = dictionary?.zh
+  if (!isRecord(en) || !isRecord(zh)) {
+    return ['the client bundle must export DICTIONARY']
   }
+  const problems = []
+  for (const field of fields ?? []) {
+    const labels = field.optionLabel
+    if (labels === undefined || labels === null) continue
+    if (!isRecord(labels)) {
+      problems.push(`field "${field.key}": optionLabel must be a map of option values to {en, zh} labels`)
+      continue
+    }
+    // The generated entries live under this field's own prefix; the option
+    // value need not appear in the key, so the entry is found by its text.
+    const prefix = `field.${field.key}.option.`
+    for (const [value, label] of Object.entries(labels)) {
+      const expected = {}
+      for (const lang of ['en', 'zh']) {
+        const text = label?.[lang]
+        if (typeof text !== 'string' || text.length === 0) {
+          problems.push(`field "${field.key}": the option ${JSON.stringify(value)} declares no ${lang} label`)
+          continue
+        }
+        expected[lang] = text
+      }
+      const enKey = Object.keys(en).find((key) => key.startsWith(prefix) && en[key] === expected.en)
+      const zhKey = Object.keys(zh).find((key) => key.startsWith(prefix) && zh[key] === expected.zh)
+      if (expected.en !== undefined && enKey === undefined) {
+        problems.push(
+          `field "${field.key}": the option ${JSON.stringify(value)} has no en dictionary entry (expected ${JSON.stringify(expected.en)})`,
+        )
+      }
+      if (expected.zh !== undefined && zhKey === undefined) {
+        problems.push(
+          `field "${field.key}": the option ${JSON.stringify(value)} has no zh dictionary entry (expected ${JSON.stringify(expected.zh)})`,
+        )
+      }
+      // The page looks one key up in either language, so the two texts have to
+      // sit under the same key; split across two, one language reads the key.
+      if (enKey !== undefined && zhKey !== undefined && enKey !== zhKey) {
+        problems.push(
+          `field "${field.key}": the option ${JSON.stringify(value)} is labelled under ${JSON.stringify(enKey)} in en and ${JSON.stringify(zhKey)} in zh`,
+        )
+      }
+    }
+  }
+  return problems
 }
 
-if (failures.length > 0) {
-  console.error(`check-bundle: ${failures.length} problem(s)\n`)
-  for (const message of failures) console.error(`  - ${message}`)
-  process.exit(1)
+/**
+ * Run every invariant and report the ones that failed.
+ *
+ * Split out of the module body so that importing this file — as the test suite
+ * does — does not run the gate.
+ */
+function main() {
+  // The bundle is evaluated the way the shell evaluates it, so a syntax error
+  // in it lands here. Report it rather than dying with a stack trace.
+  let bundle
+  try {
+    bundle = loadBundle()
+  } catch (error) {
+    fail(`lib/client.js must load as a classic script: ${error?.name ?? 'Error'}: ${error?.message ?? String(error)}`)
+    report('')
+    return
+  }
+  const { registration, exported, required } = bundle
+
+  // --- bundle identity -----------------------------------------------------
+  const manifest = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
+  if (registration.id !== manifest.name) {
+    fail(`bundle id ${JSON.stringify(registration.id)} must equal the package name ${JSON.stringify(manifest.name)}`)
+  }
+  if (!Array.isArray(exported.inject) || exported.inject.length === 0) {
+    fail('the client bundle must export a non-empty inject list')
+  }
+  for (const name of ['apply', 'inject', 'NS', 'FIELD_META', 'GROUP_META', 'PLUGIN_SURFACE']) {
+    if (exported[name] === undefined) fail(`the client bundle must export ${name}`)
+  }
+
+  // --- namespace agreement -------------------------------------------------
+  if (exported.NS !== SETTINGS_NAMESPACE) {
+    fail(`client namespace ${JSON.stringify(exported.NS)} must equal SETTINGS_NAMESPACE ${JSON.stringify(SETTINGS_NAMESPACE)}`)
+  }
+  const patch = readFileSync(path.join(ROOT, 'cordis.patch.yml'), 'utf8')
+  if (!patch.includes(`id: ${SETTINGS_NAMESPACE}`)) {
+    fail(`cordis.patch.yml must mount a row whose id is ${SETTINGS_NAMESPACE}`)
+  }
+
+  // --- plugin surface agreement ---------------------------------------------
+  // The form is not a Settings dialog section any more: it is a bundle's own
+  // configuration on the Plugins page, in the `plugins.bundle.config` keyed slot.
+  // That slot is keyed by the BUNDLE's package name — the value the plugin
+  // manager's inventory compares against — so the key is the package name and
+  // never the settings namespace above. The namespace is separately load-bearing:
+  // it is the patch row id whose live form the page binds to.
+  const clientSource = readFileSync(path.join(ROOT, 'lib', 'client.js'), 'utf8')
+  const surface = exported.PLUGIN_SURFACE
+  if (surface === undefined) {
+    fail('the client bundle must export PLUGIN_SURFACE')
+  } else {
+    if (surface.slot !== 'plugins.bundle.config') {
+      fail(`the form must register into plugins.bundle.config, not ${JSON.stringify(surface.slot)}`)
+    }
+    // The exported key IS the client's `PACKAGE_NAME`, so the exported value
+    // pins the constant without grepping the source for it.
+    if (surface.key !== manifest.name) {
+      fail(
+        `the plugins.bundle.config key ${JSON.stringify(surface.key)} must equal the package name ${JSON.stringify(manifest.name)}`,
+      )
+    }
+  }
+  if (clientSource.includes('"settings.section"')) {
+    fail('lib/client.js must not register into the Settings dialog: plugin pages live on the Plugins page')
+  }
+
+  // --- field table agreement -------------------------------------------------
+  const clientFields = exported.FIELD_META ?? []
+  if (clientFields.length !== FIELD_KEYS.length) {
+    fail(`client declares ${clientFields.length} fields but the host schema declares ${FIELD_KEYS.length}`)
+  }
+  const hostOrder = [...FIELDS.keys()]
+  const clientOrder = clientFields.map((field) => field.key)
+  if (hostOrder.join(',') !== clientOrder.join(',')) {
+    fail(`field order differs:\n  host:   ${hostOrder.join(', ')}\n  client: ${clientOrder.join(', ')}`)
+  }
+  for (const field of clientFields) {
+    const host = FIELDS.get(field.key)
+    if (host === undefined) {
+      fail(`client declares unknown field "${field.key}"`)
+      continue
+    }
+    if (host.kind !== field.kind) {
+      fail(`field "${field.key}": host kind ${host.kind} != client kind ${field.kind}`)
+    }
+    if (host.options !== undefined) {
+      const hostOptions = host.options.join('|')
+      const clientOptions = (field.options ?? []).join('|')
+      if (hostOptions !== clientOptions) {
+        fail(`field "${field.key}": host options [${hostOptions}] != client options [${clientOptions}]`)
+      }
+    }
+  }
+
+  // --- field kinds the halves actually handle --------------------------------
+  // Both halves switch on `field.kind` with a `default:` branch that falls
+  // through to a text input, so a kind that only one side knows does not fail
+  // — it degrades, and the page stages a number as a string. The client lists
+  // the kinds it handles; the host's own switches have the same shape, so the
+  // host's kinds are held to the same list.
+  const kinds = exported.FIELD_KINDS
+  failures.push(...checkFieldKinds(clientFields, kinds))
+  if (Array.isArray(kinds) && kinds.length > 0) {
+    failures.push(...checkFieldKinds([...FIELDS.values()], kinds).map((message) => `host ${message}`))
+  }
+
+  // --- suggestion sources ----------------------------------------------------
+  // A mistyped `suggest` name yields `undefined`, which becomes an empty list:
+  // the datalist disappears with no error anywhere.
+  const sources = exported.SUGGEST_SOURCES
+  failures.push(...checkSuggestSources(clientFields, sources))
+
+  // --- dictionaries ----------------------------------------------------------
+  // The two hand-written literals must declare the same keys, or the page
+  // renders the missing one as a literal string.
+  failures.push(...checkDictionarySymmetry(exported.FIXED_DICTIONARY))
+  // Every label a field declares must exist as an entry in both languages, or
+  // the select falls back to the raw option value without saying so.
+  failures.push(...checkOptionLabels(clientFields, exported.DICTIONARY))
+
+  // --- group agreement -------------------------------------------------------
+  // The page draws one card per group and reads its heading from `group.<id>`.
+  // The two tables are written twice, so they have to agree key by key, in order.
+  const clientGroups = exported.GROUP_META ?? []
+  const hostGroupIds = FIELD_GROUPS.map((group) => group.id)
+  const clientGroupIds = clientGroups.map((group) => group.id)
+  if (hostGroupIds.join(',') !== clientGroupIds.join(',')) {
+    fail(`group order differs:\n  host:   ${hostGroupIds.join(', ')}\n  client: ${clientGroupIds.join(', ')}`)
+  }
+  const clientFieldsByKey = new Map((exported.FIELD_META ?? []).map((field) => [field.key, field]))
+  for (const group of clientGroups) {
+    const hostGroup = FIELD_GROUPS.find((item) => item.id === group.id)
+    if (hostGroup === undefined) {
+      fail(`client declares unknown group "${group.id}"`)
+      continue
+    }
+    const hostFields = hostGroup.fields.map((field) => field.key).join(',')
+    if (hostFields !== group.fields.join(',')) {
+      fail(`group "${group.id}" holds different fields:\n  host:   ${hostFields}\n  client: ${group.fields.join(',')}`)
+    }
+  }
+
+  // --- user-visible text agreement -------------------------------------------
+  // Every heading, hint and label the page can render is written twice. Comparing
+  // only the keys would let a reworded or mistranslated label ship: the form
+  // would still render, just with text that no longer matches the host. Compare
+  // the text itself, in both languages.
+  /** Compare two `{en, zh}` text objects, reporting every difference. */
+  function compareText(what, hostText, clientText) {
+    for (const lang of ['en', 'zh']) {
+      const host = hostText?.[lang]
+      const client = clientText?.[lang]
+      if (typeof host !== 'string' || host.length === 0) fail(`${what}: the host declares no ${lang} text`)
+      else if (host !== client) {
+        fail(`${what}: ${lang} text differs\n  host:   ${host}\n  client: ${client === undefined ? '(missing)' : client}`)
+      }
+    }
+  }
+  for (const group of FIELD_GROUPS) {
+    const client = clientGroups.find((item) => item.id === group.id)
+    if (client === undefined) continue
+    compareText(`group "${group.id}" title`, group.title, client.title)
+    compareText(`group "${group.id}" hint`, group.hint, client.hint)
+    for (const field of group.fields) {
+      const clientField = clientFieldsByKey.get(field.key)
+      if (clientField === undefined) continue
+      compareText(`field "${field.key}" label`, field.label, clientField.label)
+      compareText(`field "${field.key}" hint`, field.hint, clientField.hint)
+      if ((field.placeholder ?? '') !== (clientField.placeholder ?? '')) {
+        fail(`field "${field.key}": placeholder differs\n  host:   ${field.placeholder ?? '(none)'}\n  client: ${clientField.placeholder ?? '(none)'}`)
+      }
+    }
+  }
+  // `locale/*.json` carries the package metadata the plugin list reads, so both
+  // languages must describe the same package with the same keys.
+  const localeFiles = {}
+  for (const name of ['en', 'zh']) {
+    localeFiles[name] = JSON.parse(readFileSync(path.join(ROOT, 'locale', `${name}.json`), 'utf8'))
+  }
+  for (const key of new Set([...Object.keys(localeFiles.en), ...Object.keys(localeFiles.zh)])) {
+    if (!(key in localeFiles.en)) fail(`locale/zh.json declares "${key}" but locale/en.json does not`)
+    if (!(key in localeFiles.zh)) fail(`locale/en.json declares "${key}" but locale/zh.json does not`)
+  }
+  for (const name of ['en', 'zh']) {
+    if (typeof localeFiles[name].meta?.title !== 'string' || localeFiles[name].meta.title.length === 0) {
+      fail(`locale/${name}.json must declare meta.title`)
+    }
+    if (typeof localeFiles[name].meta?.description !== 'string' || localeFiles[name].meta.description.length === 0) {
+      fail(`locale/${name}.json must declare meta.description`)
+    }
+  }
+  // The plugin's display name has exactly one source: `locale/*.json`, which the
+  // plugin list and the plugin detail page both read. The bundle used to draw its
+  // own heading and register a Settings nav label, which is why this gate used to
+  // compare a second copy; that copy is gone with the Settings section.
+
+  // --- route agreement -------------------------------------------------------
+  // The host owns the prefix and the two routes; the client calls them by
+  // absolute path. Both sides export the paths now — the host's `ROUTES` and
+  // the browser half's `ROUTES` — so the gate compares two values instead of
+  // grepping two source files for the same literal.
+  const hostRoutes = hostIndex.ROUTES
+  const clientRoutes = exported.ROUTES
+  if (hostRoutes === undefined) {
+    fail('lib/index.js must export ROUTES')
+  }
+  if (clientRoutes === undefined) {
+    fail('the client bundle must export ROUTES')
+  }
+  if (hostRoutes !== undefined && clientRoutes !== undefined) {
+    for (const name of ['status', 'inventory']) {
+      const route = hostRoutes[name]
+      if (route === undefined) {
+        fail(`lib/index.js must export the ${name} route in ROUTES`)
+        continue
+      }
+      if (clientRoutes[name] !== route) {
+        fail(`the client route ${name} ${JSON.stringify(clientRoutes[name])} must equal ${JSON.stringify(route)}`)
+      }
+    }
+  }
+
+  // --- client bundle hygiene -------------------------------------------------
+  if (/^\s*(import|export)\s/m.test(clientSource)) {
+    fail('the client bundle must be a classic script: no import/export statements')
+  }
+  for (const specifier of new Set(required)) {
+    if (!['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'].includes(specifier)) {
+      console.warn(`note: the bundle requires ${specifier}; confirm it is a shell static module or declared in dsh.client.external`)
+    }
+  }
+
+  report(
+    `check-bundle: OK — bundle id, namespace, plugin surface, ${clientFields.length} fields, ${kinds?.length ?? 0} field kinds, ${sources?.length ?? 0} suggestion sources, both dictionaries, 2 routes and script hygiene all agree.`,
+  )
 }
 
-console.log(
-  `check-bundle: OK — bundle id, namespace, plugin surface, ${clientFields.length} fields, 2 routes and script hygiene all agree.`,
-)
+/**
+ * Print the failures and exit non-zero, or print the summary and exit zero.
+ *
+ * @param {string} summary - the line printed when nothing failed.
+ */
+function report(summary) {
+  if (failures.length > 0) {
+    console.error(`check-bundle: ${failures.length} problem(s)\n`)
+    for (const message of failures) console.error(`  - ${message}`)
+    process.exit(1)
+  }
+  console.log(summary)
+}
+
+// Only when this file is the entry point: the test suite imports the checks
+// above, and running the whole gate as an import side effect would exit the
+// test process on the first failure.
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main()
+}
