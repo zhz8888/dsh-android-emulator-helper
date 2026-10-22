@@ -138,3 +138,18 @@ test('the runtime data root follows DSH_HOME when no data directory is configure
   const rt = createRuntime({ config: {}, exec: execWithCwd(WORKSPACE), env: { DSH_HOME: '/dsh' } })
   assert.equal(rt.dataRoot, path.join('/dsh', DATA_DIR_NAME))
 })
+
+test('an agent without a tool execution record still supplies the workspace', () => {
+  const rt = createRuntime({ config: {}, agent: execWithCwd(WORKSPACE).agent, env: {} })
+  assert.equal(rt.cwd, WORKSPACE)
+})
+
+test('an explicit cwd still wins over the agent workspace', () => {
+  const rt = createRuntime({
+    config: {},
+    agent: execWithCwd(WORKSPACE).agent,
+    cwd: '/explicit',
+    env: {},
+  })
+  assert.equal(rt.cwd, '/explicit')
+})
