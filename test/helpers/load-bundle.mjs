@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url'
  *
  * Shared by the test suite and `scripts/check-bundle.mjs`. The shell injects a
  * `window.__ModuleLoader__` facade and evaluates the bundle as a classic
- * script, so this reproduces that: a `window` stand-in, the nine-word static
- * module table as the only resolvable `require`, and the factory invoked with
- * the same `require`.
+ * script, so this reproduces that: a `window` stand-in, the static module
+ * table as the only resolvable `require`, and the factory invoked with the
+ * same `require`.
  *
  * @module test/helpers/load-bundle
  */
@@ -19,7 +19,15 @@ import { fileURLToPath } from 'node:url'
 export const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 /**
- * The shell's frozen platform seed table, as extracted from the built SPA.
+ * The shell's frozen platform seed table.
+ *
+ * Taken from the shipped DSH web frontend's own module table — the SPA's
+ * `staticModules` seed, which the shell hands to `__ModuleLoader__.create(...)`
+ * as the only modules a plugin bundle may resolve. It is the shell's table,
+ * not this plugin's: a stricter list here would reject a bundle the shell
+ * would happily load, and a looser one would let through a bundle the shell
+ * cannot resolve at all.
+ *
  * Nothing outside this list may be `require`d by a client bundle unless it is
  * declared in `dsh.client.external` and provided by another plugin's row.
  */
@@ -29,6 +37,8 @@ export const STATIC_MODULES = [
   'react-dom',
   'react-dom/client',
   '@deepseek-ai/cordis',
+  'zod',
+  '@tanstack/react-virtual',
   '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-ui-primitives',
