@@ -112,6 +112,17 @@ test('an overridden value shows the badge and its reset control', () => {
   assert.match(report.markup, />Reset to default</)
 })
 
+test('the page binds only the namespace it owns', () => {
+  // The fake host records what it was asked for; answering any namespace made
+  // the old render test blind to a page bound to the package name or a typo.
+  assert.deepEqual(report.registered.namespaceCalls, ['android-emulator-helper'])
+  for (const namespaces of report.registered.servedNamespaces) {
+    assert.deepEqual(namespaces, ['android-emulator-helper'])
+  }
+  assert.equal(report.registered.boundNamespace, 'settings.androidEmulatorHelper')
+  assert.deepEqual(report.registered.dictionaryNamespaces, ['settings.androidEmulatorHelper'])
+})
+
 test('a host that does not serve the namespace renders no form at all', () => {
   // The registration hangs off `whileServed`, so a deployment without the host
   // half must not leave a slot entry behind.
@@ -119,11 +130,30 @@ test('a host that does not serve the namespace renders no form at all', () => {
   assert.deepEqual(report.unserved.slots, [], 'no slot may be injected when the namespace is not served')
 })
 
+test('the staged and non-ready states render their own copy, not raw keys', () => {
+  assert.match(report.invalidMarkup, /Enter a positive whole number/)
+  assert.match(report.invalidMarkup, /One value is invalid; fix it before saving/)
+  assert.match(report.zeroMarkup, /Enter a positive whole number/)
+  assert.match(report.dirtyMarkup, /Unsaved changes/)
+  assert.match(report.dirtyMarkup, />Save</)
+  // A draft whose parsed value equals the served one but whose text differs is
+  // still a staged write in the shared model; hiding the bar would strand it.
+  assert.match(report.noopishMarkup, /Unsaved changes/)
+  assert.match(report.noopishMarkup, />Save</)
+  assert.match(report.readOnlyMarkup, /stores settings read-only/)
+  assert.match(report.unavailableMarkup, /not served, so it cannot be configured right now/)
+  for (const markup of [report.invalidMarkup, report.dirtyMarkup, report.readOnlyMarkup, report.unavailableMarkup]) {
+    assert.ok(!/field\.[A-Za-z]+/.test(markup), 'an unresolved field key leaked into the markup')
+    assert.ok(!/group\.[A-Za-z]+/.test(markup), 'an unresolved group key leaked into the markup')
+    assert.ok(!/\bwriteFailed\b|\bwriteBlocked\b|\bstatusFailed\b/.test(markup), 'a fixed dictionary key leaked')
+  }
+})
+
 test('the form draws no title of its own; the plugin detail page owns the chrome', () => {
   // The page draws the plugin's title, icon, crumb and description above this
   // section. Repeating any of that here would render the plugin's name twice on
   // one screen, so the form contributes an effect note and the category cards.
-  assert.ok(!report.markup.includes('aemh_title'), 'the form must not draw its own title')
+  assert.ok(!report.markup.includes('Android Emulator Helper'), 'the form must not repeat the plugin title')
   assert.ok(!/<h[12]\b/.test(report.markup), 'the form must start at section headings')
   assert.match(report.markup, /Changes are saved to this profile and take effect on the next tool call\./)
   assert.equal((report.markup.match(/aemh_group"/g) ?? []).length >= 6, true, 'five field cards plus the tools card')

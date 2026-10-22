@@ -11,7 +11,14 @@ import { loadBundle } from './load-bundle.mjs'
  * thing); the primitives are the double documented in `primitives-double.mjs`,
  * because the shipped ones are a browser bundler input. Run through
  * `test/client-render.test.js`.
+ *
+ * The fake services validate the namespace they are called with: a client that
+ * bound the wrong namespace used to satisfy every assertion here, because the
+ * fake answered any name with the same form and dictionary.
  */
+
+/** The namespace the page must bind to (the patch row id). */
+const EXPECTED_NS = 'android-emulator-helper'
 
 const report = { failures: [], markup: '', registered: null }
 
@@ -50,14 +57,14 @@ function snapshotStore(initial) {
 }
 
 /** The shared config form the host would serve for this namespace. */
-function fakeConfigForm() {
+function fakeConfigForm(options = {}) {
   const store = snapshotStore({
-    status: 'ready',
+    status: options.status ?? 'ready',
     value: { ...LIVE_VALUES },
     base: { ...LIVE_VALUES },
     user: { apiLevel: '35' },
     revision: 3,
-    writable: true,
+    writable: options.writable ?? true,
     mode: 'host',
   })
   return {
@@ -72,38 +79,53 @@ function fakeConfigForm() {
 /**
  * The Cordis-like browser context the bundle's `apply` expects.
  *
- * @param {{served?: boolean}} [options] - `served: false` models a host that does
- *   not serve the settings namespace: `whileServed` then never calls back.
+ * @param {{served?: boolean, status?: string, writable?: boolean}} [options] - `served: false`
+ *   models a host that does not serve the settings namespace: `whileServed` then
+ *   never calls back.
  * @returns {{ctx: object, registered: object}} the context and its registration record.
  */
 function fakeContext(options = {}) {
   const served = options.served ?? true
-  const form = fakeConfigForm()
-  const registered = { component: undefined, options: undefined, slots: [], dictionaries: [] }
-  const dictionaries = () => registered.dictionaries.at(-1)?.dictionaries
+  const form = fakeConfigForm(options)
+  const registered = {
+    component: undefined,
+    options: undefined,
+    slots: [],
+    dictionaries: [],
+    namespaceCalls: [],
+    servedNamespaces: [],
+    boundNamespace: undefined,
+  }
+  const dictionaries = new Map()
   const ctx = {
     configForms: {
-      get: () => form,
+      get: (namespace) => {
+        registered.namespaceCalls.push(namespace)
+        return form
+      },
       describe: () => ({
-        getSnapshot: () => ({ view: { namespaces: [{ ns: 'android-emulator-helper' }], writable: true } }),
+        getSnapshot: () => ({ view: { namespaces: [{ ns: EXPECTED_NS }], writable: true } }),
       }),
       whileServed: (namespaces, register) => {
-        if (!served) return () => {}
+        registered.servedNamespaces.push([...namespaces])
+        if (!served || !namespaces.includes(EXPECTED_NS)) return () => {}
         const disposer = register(new Set(namespaces))
         return typeof disposer === 'function' ? disposer : () => {}
       },
     },
     locale: {
-      register: (ns, value) => {
-        registered.dictionaries.push({ ns, dictionaries: value })
+      register: (namespace, value) => {
+        dictionaries.set(namespace, value)
+        registered.dictionaries.push({ ns: namespace, dictionaries: value })
         return () => {}
       },
-      bind:
-        () =>
-        (key, params) => {
-          const template = dictionaries()?.en?.[key] ?? key
+      bind: (namespace) => {
+        registered.boundNamespace = namespace
+        return (key, params) => {
+          const template = dictionaries.get(namespace)?.en?.[key] ?? key
           return params === undefined ? template : template.replace(/\{(\w+)\}/g, (_, name) => String(params[name] ?? ''))
-        },
+        }
+      },
       getSnapshot: () => ({ revision: 1 }),
       subscribe: () => () => {},
     },
@@ -112,8 +134,8 @@ function fakeContext(options = {}) {
         registered.slots.push(name)
         return callback()
       },
-      register: (options, component) => {
-        registered.options = options
+      register: (entry, component) => {
+        registered.options = entry
         registered.component = component
         return () => {}
       },
@@ -133,7 +155,6 @@ function fakeContext(options = {}) {
   return { ctx, registered }
 }
 
-const { ctx, registered } = fakeContext()
 const { exported } = loadBundle({
   resolve: (specifier) => {
     if (specifier === 'react') return React
@@ -142,22 +163,20 @@ const { exported } = loadBundle({
   },
 })
 
-try {
-  exported.apply(ctx)
-} catch (error) {
-  report.failures.push(`apply() threw: ${error.message}`)
-}
-
-// A host that does not serve the namespace must render no trace of the form.
-const unserved = fakeContext({ served: false })
-try {
-  exported.apply(unserved.ctx)
-} catch (error) {
-  report.failures.push(`apply() threw without a served namespace: ${error.message}`)
-}
-report.unserved = {
-  component: unserved.registered.component !== undefined,
-  slots: [...new Set(unserved.registered.slots)],
+/**
+ * Mount the bundle against one fake host.
+ *
+ * @param {{served?: boolean, status?: string, writable?: boolean}} [options] - host shape.
+ * @returns {{ctx: object, registered: object}} the mount.
+ */
+function mount(options = {}) {
+  const host = fakeContext(options)
+  try {
+    exported.apply(host.ctx)
+  } catch (error) {
+    report.failures.push(`apply() threw: ${error.message}`)
+  }
+  return host
 }
 
 /**
@@ -181,11 +200,51 @@ function faceToProps(face) {
   return { ...hooks, ...rest }
 }
 
-if (registered.component === undefined) {
+/**
+ * The props one registered component is rendered with.
+ *
+ * @param {{ctx: object, registered: object}} host - the mount.
+ * @returns {object | undefined} the props, or undefined when nothing registered.
+ */
+function propsFor(host) {
+  const { component, options } = host.registered
+  if (component === undefined) return undefined
+  return { t: host.ctx.locale.bind(options.locale), view: 'page', ...faceToProps(options.inject()) }
+}
+
+/** Render one mount's component to markup. */
+function render(host) {
+  const props = propsFor(host)
+  if (props === undefined) return ''
+  return renderToStaticMarkup(React.createElement(host.registered.component, props))
+}
+
+const main = mount()
+
+// A host that does not serve the namespace must render no trace of the form.
+const unserved = mount({ served: false })
+report.unserved = {
+  component: unserved.registered.component !== undefined,
+  slots: [...new Set(unserved.registered.slots)],
+}
+
+if (main.registered.component === undefined) {
   report.failures.push('apply() registered no plugin-page configuration component')
 } else {
-  const { component, options } = registered
-  report.registered = { slot: options.name, key: options.key, locale: options.locale }
+  const { options } = main.registered
+  report.registered = {
+    slot: options.name,
+    key: options.key,
+    locale: options.locale,
+    injectKeys: Object.keys(propsFor(main) ?? {}).sort(),
+    slots: [...new Set(main.registered.slots)],
+    // Every service call the client made, so the test can refuse a wrong
+    // namespace instead of accepting whatever the fake was asked for.
+    namespaceCalls: [...new Set(main.registered.namespaceCalls)],
+    servedNamespaces: main.registered.servedNamespaces,
+    boundNamespace: main.registered.boundNamespace,
+    dictionaryNamespaces: [...new Set(main.registered.dictionaries.map((entry) => entry.ns))],
+  }
 
   // The plugin detail page keys a bundle's configuration by the BUNDLE's
   // package name and draws the title, icon and crumb itself — so the entry
@@ -201,21 +260,46 @@ if (registered.component === undefined) {
   }
   if (options.label !== undefined) report.failures.push('the plugin detail page draws its own title; the entry must not register a label')
 
-  let props
   try {
-    props = { t: ctx.locale.bind(options.locale), view: 'page', ...faceToProps(options.inject()) }
+    report.markup = render(main)
   } catch (error) {
-    report.failures.push(`inject() threw: ${error.message}`)
+    report.failures.push(`render threw: ${error.stack ?? error.message}`)
   }
 
-  if (props !== undefined) {
+  // The clean/ready state is the one every route button starts in. The states
+  // below carry the copy that only appears after an edit, a failure or on a
+  // read-only deployment: a missing key there rendered as the raw key and no
+  // test saw it.
+  const editProps = propsFor(main)
+  if (editProps !== undefined) {
     try {
-      report.markup = renderToStaticMarkup(React.createElement(component, props))
-      report.registered.injectKeys = Object.keys(props).sort()
-      report.registered.slots = [...new Set(registered.slots)]
+      editProps.edit('minSdk', 'abc')
+      report.invalidMarkup = render(main)
+      editProps.discard()
+      // 0 passes the schema's non-negative rule but the host treats it as
+      // "unset"; the form must refuse it rather than persist a value the tools
+      // silently replace.
+      editProps.edit('minSdk', '0')
+      report.zeroMarkup = render(main)
+      editProps.discard()
+      editProps.edit('apiLevel', '36')
+      report.dirtyMarkup = render(main)
+      editProps.discard()
+      // Parses to the served value but has different draft text: the model's
+      // plan still stages a write, so the action bar must stay available.
+      editProps.edit('apiLevel', ' 35')
+      report.noopishMarkup = render(main)
+      editProps.discard()
     } catch (error) {
-      report.failures.push(`render threw: ${error.stack ?? error.message}`)
+      report.failures.push(`staged render threw: ${error.stack ?? error.message}`)
     }
+  }
+
+  try {
+    report.readOnlyMarkup = render(mount({ writable: false }))
+    report.unavailableMarkup = render(mount({ status: 'unavailable' }))
+  } catch (error) {
+    report.failures.push(`state render threw: ${error.stack ?? error.message}`)
   }
 }
 
