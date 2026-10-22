@@ -16,12 +16,12 @@ browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 185 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 203 tests: unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
 pnpm run smoke               # read-only real-machine probes
-pnpm run smoke:emulator      # also boot an AVD, screenshot, logs, stop
+pnpm run smoke:emulator      # also boot an AVD, create/build/install/launch, screenshot, logs, stop
 pnpm run link:dsh-deps       # offline dev: symlink a local DSH's @deepseek-ai packages
 ```
 
@@ -185,7 +185,7 @@ requires `>=4.0.5` — still a lower bound only.
 edits and what the providers multiply by 1000. Tool arguments named `timeoutMs`
 are milliseconds and override the setting. Do not "simplify" this by renaming
 either side: the configuration page and the tool schema are separate contracts,
-and `test/emulator-start.test.js` pins the conversion by counting boot polls.
+and `test/device-tools.test.js` pins the conversion through the pure `bootTimeoutMs` helper.
 
 ## The tool surface is frozen to the original plugin
 
@@ -358,7 +358,7 @@ see a type error at all.
 | Configuration page render | `pnpm test` (`client-render.test.js`) | The whole form rendered with real React and `react-dom/server`: the registration targets `plugins.bundle.config` keyed by the package name and nothing else, every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, the override badge and reset, both route buttons, no title of its own, and no action bar while nothing is staged |
 | Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the exported plugin surface is the Plugins page's `plugins.bundle.config` keyed by the package name (and the bundle no longer registers a Settings section), the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, every field's kind is one the page actually renders and every `suggest` names a list the page provides, the two fixed dictionaries carry the same keys and every declared option label has text in both languages, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
 | Route integration | `test/routes-integration.test.js` | The two configuration routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 17 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing both routes |
-| Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, **all 23 dispatched through the registry** and validated against their argument and result schemas, malformed arguments refused, unknown names unresolved, 17 volatile fields, full unregistration on dispose |
+| Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, **all 23 dispatched through the registry**, every argument schema enforced by the registry, every declared result schema validated for shape (device-backed tools fail before a value exists), malformed arguments refused, unknown names unresolved, 17 volatile fields, full unregistration on dispose |
 | Type gate | `tsc -p tsconfig.json --noEmit` and `tsc -p tsconfig.client.json --noEmit` | The host half's contracts against the real `@deepseek-ai/*` declarations, and the browser half's contracts against the real `react` and the real `dsh-client-ui-primitives` declarations — the two halves checked apart, because they run in different realms |
 
 The type gate is a command of its own: `pnpm run typecheck` runs the two
