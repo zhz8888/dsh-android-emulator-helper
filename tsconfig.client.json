@@ -1,0 +1,21 @@
+{
+  // The browser half is a classic script: it is not an ES module, it has no
+  // `require` of its own, and it reaches the shell through `window`. It is
+  // checked apart from the host half for two reasons: the host half runs on
+  // Node and has `types: ["node"]`, while this half has no Node globals at
+  // all; and the browser's module table resolves `require` at run time, so
+  // the types of the modules it pulls in are declared in `types/` instead.
+  //
+  // `module: Node16` is what describes the file honestly: the package is
+  // `"type": "module"`, and the shell's `require` is declared globally in
+  // `types/client-globals.d.ts` rather than resolved from disk.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "lib": ["ES2023", "DOM"],
+    "types": []
+  },
+  "include": ["lib/client.js", "types/**/*.d.ts"],
+  "exclude": []
+}

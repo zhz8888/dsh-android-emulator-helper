@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+
+    // The plugin ships what it writes: there is no transpiler, no bundler and
+    // no build step, so `lib/` is the source that runs. TypeScript is a gate
+    // here, not a compiler: it type-checks the same files and emits nothing.
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+
+    // `@deepseek-ai/dsh-client-ui-primitives` and the other peer packages
+    // carry declarations that reference their own transitive devDependencies
+    // (`mdast`, `@deepseek-ai/dsh-util-code-language`), which this plugin
+    // does not install. Checking them is not this repository's business.
+    "skipLibCheck": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true
+  },
+  "include": ["lib/**/*.js"],
+  "exclude": ["lib/client.js"]
+}

@@ -68,7 +68,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "check": "node --test test/*.test.js && node scripts/check-bundle.mjs && node scripts/verify-mount.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "check": "node --test test/*.test.js && node scripts/check-bundle.mjs && node scripts/verify-mount.mjs && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "smoke": "node scripts/smoke.mjs",
     "smoke:emulator": "node scripts/smoke.mjs --with-emulator",
     "verify:mount": "node scripts/verify-mount.mjs",
@@ -80,8 +81,12 @@
     "@deepseek-ai/schemastery": ">=3.18.4"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.2",
+    "@types/node": "22.20.0",
+    "@types/react": "^18.3.31",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "typescript": "6.0.3"
   },
   "engines": {
     "node": ">=22",
