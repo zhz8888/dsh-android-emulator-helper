@@ -185,6 +185,50 @@ test('APK selection understands a flavor directory', () => {
   assert.equal(pickApk(hits, 'debug'), '/p/app/build/outputs/apk/freeDebug/app-free-debug.apk')
 })
 
+test('create pins the configured build-tools release into the generated project', async () => {
+  // The setting used to be display-only: preflight reported it while the
+  // generated project let AGP pick its own default (34.0.0 for the pinned AGP),
+  // so a machine with only newer build-tools still triggered an SDK download.
+  const { mkdtemp, readFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const path = await import('node:path')
+  const { create } = await import('../lib/providers/project.js')
+  const { createRuntime } = await import('../lib/runtime.js')
+
+  const root = await mkdtemp(path.join(tmpdir(), 'aemh-create-'))
+  const rt = createRuntime({
+    config: {
+      dataDir: { get: () => path.join(root, 'data') },
+      buildToolsVersion: { get: () => '35.0.0' },
+    },
+    cwd: root,
+    env: { ...process.env, HOME: root },
+  })
+  await create(rt, { name: 'PinApp', dir: 'PinApp' })
+  const build = await readFile(path.join(root, 'PinApp', 'app', 'build.gradle.kts'), 'utf8')
+  assert.match(build, /buildToolsVersion = "35\.0\.0"/)
+})
+
+test('create refuses a build-tools value that would break the generated Kotlin', async () => {
+  const { mkdtemp } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const path = await import('node:path')
+  const { create } = await import('../lib/providers/project.js')
+  const { createRuntime } = await import('../lib/runtime.js')
+
+  const root = await mkdtemp(path.join(tmpdir(), 'aemh-create-bad-'))
+  const rt = createRuntime({
+    config: {
+      dataDir: { get: () => path.join(root, 'data') },
+      // A quote would close the Kotlin string literal in the generated file.
+      buildToolsVersion: { get: () => '35.0.0"\ncompileSdk = 1' },
+    },
+    cwd: root,
+    env: { ...process.env, HOME: root },
+  })
+  await assert.rejects(() => create(rt, { name: 'BadApp', dir: 'BadApp' }), /Invalid buildToolsVersion/)
+})
+
 test('a multi-display warning before the PNG is stripped to the image', async () => {
   const { pngPayload } = await import('../lib/providers/screenshot.js')
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00])
