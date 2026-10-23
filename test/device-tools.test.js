@@ -469,6 +469,16 @@ test('the line count is clamped to 1..5000', async () => {
   assert.deepEqual(requested, ['5000', '1', '1'])
 })
 
+test('a non-finite line count never reaches adb as -t NaN', async () => {
+  // `Math.max(1, Math.min(NaN, 5000))` is NaN, and `String(NaN)` became the
+  // literal argument "-t NaN". The registry's `integer` schema already refuses
+  // this from the model, so this pins the programmatic path.
+  const { rt, paths } = await logsRuntime()
+  assert.equal((await logs(rt, { serial: 'R58M12ABCDE', lines: Number.NaN })).lines, 5000)
+  const requested = (await argvs(paths.argvFile)).filter((argv) => argv.includes('logcat')).map((argv) => argv.at(-1))
+  assert.equal(requested.includes('NaN'), false, `adb must never see -t NaN: ${JSON.stringify(requested)}`)
+})
+
 test('an applicationId filters the tail and is validated first', async () => {
   const { rt } = await logsRuntime()
   const result = await logs(rt, { serial: 'R58M12ABCDE', applicationId: 'com.example.app' })
