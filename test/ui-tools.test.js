@@ -78,7 +78,7 @@ const NODE_RECORD_KEYS = [
  * mapped onto those two files, which is the only part of the dump not under test.
  *
  * @param {{screen?: string}} [options] - the XML the next dump should publish.
- * @returns {Promise<{rt: object, argv: () => Promise<string[]>, setScreen: (xml: string) => Promise<void>, failDump: (fails: boolean) => Promise<void>}>} the harness.
+ * @returns {Promise<{rt: object, argv: () => Promise<string[]>, setScreen: (xml: string) => Promise<void>, failDump: (fails: boolean) => Promise<void>, errorDump: (fails: boolean) => Promise<void>}>} the harness.
  */
 async function fakeAdb(options = {}) {
   const binDir = await mkdtemp(path.join(tmpdir(), 'aemh-ui-bin-'))
@@ -132,6 +132,12 @@ case "$1" in
         # (see the stale-dump test below).
         if [ -f "$STATE/dump-fails" ]; then
           echo "UI hierchary dumped to: $dumpPath"
+          exit 0
+        fi
+        # The other real failure mode: the tool prints its diagnosis to stdout
+        # and STILL exits 0, so only the output tells the caller it failed.
+        if [ -f "$STATE/dump-errors" ]; then
+          echo "ERROR: could not get idle state."
           exit 0
         fi
         cp "$STATE/screen.xml" "$STATE/window.xml"
@@ -191,6 +197,11 @@ exit 0
     failDump: async (fails) => {
       if (fails) await writeFile(path.join(stateDir, 'dump-fails'), '', 'utf8')
       else await rm(path.join(stateDir, 'dump-fails'), { force: true })
+    },
+    /** Make `uiautomator dump` print an error to stdout while still exiting 0. */
+    errorDump: async (fails) => {
+      if (fails) await writeFile(path.join(stateDir, 'dump-errors'), '', 'utf8')
+      else await rm(path.join(stateDir, 'dump-errors'), { force: true })
     },
   }
 }
@@ -365,18 +376,34 @@ test('describe reports a failed dump instead of serving the previous screen', { 
 
   // The failure is reported. Answering with an empty tree instead would be
   // indistinguishable from a genuinely empty screen and would send the caller
-  // hunting for a bug in its own query. Which message it is depends on how the
-  // device surfaces the miss: `cat` on the never-written path fails outright,
-  // and the provider's own guard catches the case where it somehow does not.
-  await assert.rejects(
-    () => describe(harness.rt, { serial: 'emulator-5554' }),
-    /UI Automator produced no dump for emulator-5554|No such file or directory/,
-  )
+  // hunting for a bug in its own query. The message must be the provider's own
+  // actionable one, never the raw `cat: /sdcard/...: No such file or directory`
+  // — that named an internal temp path and told the caller nothing.
+  await assert.rejects(() => describe(harness.rt, { serial: 'emulator-5554' }), (error) => {
+    assert.match(error.message, /UI Automator produced no dump for emulator-5554/)
+    assert.match(error.message, /Retry once the app has settled/)
+    assert.doesNotMatch(error.message, /No such file or directory/)
+    return true
+  })
 
   // Control: once the dump writes again, the same call sees the new screen.
   await harness.failDump(false)
   const fresh = await describe(harness.rt, { serial: 'emulator-5554' })
   assert.equal(fresh.elements[0].text, 'ScreenTwo')
+})
+
+test('describe names a dump that reported an error on stdout while exiting 0', { skip: process.platform === 'win32' }, async () => {
+  // `uiautomator dump` prints "ERROR: could not get idle state." to stdout and
+  // exits 0 when the screen is not idle. Checking only the exit code let the
+  // provider `cat` a file that was never written and surface the raw
+  // `cat: /sdcard/...: No such file or directory` instead of its own hint.
+  const harness = await fakeAdb({ screen: hierarchy(node({ text: 'ScreenOne', bounds: '[0,0][10,10]' })) })
+  await harness.errorDump(true)
+  await assert.rejects(() => describe(harness.rt, { serial: 'emulator-5554' }), (error) => {
+    assert.match(error.message, /UI Automator produced no dump for emulator-5554/)
+    assert.match(error.message, /Retry once the app has settled/)
+    return true
+  })
 })
 
 test('resolve searches text, content description, resource id and class', { skip: process.platform === 'win32' }, async () => {
