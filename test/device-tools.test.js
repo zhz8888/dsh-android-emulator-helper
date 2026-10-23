@@ -87,6 +87,7 @@ async function argvWith(file, needle) {
  * @param {boolean} [options.png] - whether `exec-out screencap -p` prints a PNG; defaults to true when `screencapPrefix` is set.
  * @param {string} [options.screencapPrefix] - text the device prints before the PNG, as a multi-display device does.
  * @param {boolean} [options.screencapHangs] - whether `exec-out screencap -p` ignores SIGTERM instead of answering.
+ * @param {boolean} [options.bootSilent] - whether `getprop sys.boot_completed` fails instead of answering, as a wedged shell does.
  * @returns {string} shell source.
  */
 function adbBody({
@@ -100,6 +101,7 @@ function adbBody({
   png,
   screencapPrefix,
   screencapHangs = false,
+  bootSilent = false,
 }) {
   // A prefix models the chatter a multi-display device prints *before* the
   // image, so it implies an image unless the test explicitly opts out.
@@ -117,7 +119,7 @@ function adbBody({
   out.push(
     'if [ "$3" = "shell" ]; then',
     '  case "$4" in',
-    `    getprop*) echo ${JSON.stringify(boot)}; exit 0 ;;`,
+    bootSilent ? `    getprop*) exit 1 ;;` : `    getprop*) echo ${JSON.stringify(boot)}; exit 0 ;;`,
     '  esac',
     'fi',
   )
@@ -736,6 +738,22 @@ test('an explicit timeoutMs overrides the bootTimeoutSeconds setting', { timeout
     () => ensureDevice(rt, { serial: 'emulator-5554', timeoutMs: 100 }),
     /Emulator boot deadline reached before emulator-5554 finished booting/,
   )
+})
+
+test('a wedged shell is reported as unresponsive, not as a slow boot', { timeout: 30_000 }, async () => {
+  // A device that is attached but whose `getprop` never succeeds is not a slow
+  // boot — waiting longer will not help — so the message must say so and point
+  // at the device being stuck rather than at bootTimeoutMs.
+  const { rt } = await toolchain({
+    adb: (p) => adbBody({ argvFile: p.argvFile, devices: [EMULATOR_DEVICE], bootSilent: true }),
+    config: { bootTimeoutSeconds: { get: () => 5 } },
+  })
+  await assert.rejects(() => ensureDevice(rt, { serial: 'emulator-5554', timeoutMs: 300 }), (error) => {
+    assert.match(error.message, /Emulator boot deadline reached while emulator-5554 was not answering/)
+    assert.match(error.message, /Retry once it settles rather than raising bootTimeoutMs/)
+    assert.doesNotMatch(error.message, /may still finish booting after this call returns/)
+    return true
+  })
 })
 
 test('a new emulator stuck in unauthorized burns the boot timeout, then names the state', { timeout: 30_000 }, async () => {
