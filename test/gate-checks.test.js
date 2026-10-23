@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import * as gate from '../scripts/check-bundle.mjs'
+import { readFileSync } from 'node:fs'
 
 /**
  * Consistency-gate unit tests.
@@ -199,4 +200,112 @@ test('the shipped gate runs its whole comparison as a subprocess', async () => {
     cwd: ROOT,
   })
   assert.match(stdout, /check-bundle: OK/)
+})
+
+// ---------------------------------------------------------------------------
+// The gate defects G-1..G-4
+//
+// Each of these was a way the gate stayed green while the page was broken. They
+// are regression tests for the gate itself, so they mutate the *source* the gate
+// reads rather than a fixture: a check that only passes on a fixture is exactly
+// the failure mode being fixed.
+// ---------------------------------------------------------------------------
+
+/** The shipped client source, as the gate reads it. */
+const CLIENT_SOURCE = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+
+test('G-1: a registration that repeats the slot as a literal is reported', () => {
+  // Renaming only the registration used to move the page somewhere nothing
+  // renders while PLUGIN_SURFACE — the only thing the gate compared — stayed
+  // correct, so the gate stayed green.
+  const mutated = CLIENT_SOURCE.replace('name: PLUGIN_SURFACE.slot,', 'name: "plugins.bundle.config.renamed",')
+  assert.notEqual(mutated, CLIENT_SOURCE, 'the mutation must actually change the source')
+  const failures = gate.checkRegistrationUsesSurface(mutated)
+  assert.ok(failures.length > 0, 'a registration that does not read PLUGIN_SURFACE.slot must be reported')
+  assert.match(failures.join('\n'), /PLUGIN_SURFACE\.slot/)
+})
+
+test('G-1: the shipped registration passes', () => {
+  assert.deepEqual(gate.checkRegistrationUsesSurface(CLIENT_SOURCE), [])
+})
+
+test('G-3: a single-quoted settings.section registration is reported', () => {
+  const mutated = `${CLIENT_SOURCE}\nconst LEGACY = 'settings.section';\n`
+  const failures = gate.checkNoSettingsSection(mutated)
+  assert.ok(failures.length > 0, 'a single-quoted settings.section must be reported')
+  assert.match(failures.join('\n'), /Settings dialog/)
+})
+
+test('G-3: a bare settings.section property access is reported', () => {
+  const failures = gate.checkNoSettingsSection(`${CLIENT_SOURCE}\nconst legacy = slots.inject(settings.section);\n`)
+  assert.ok(failures.length > 0, 'a bare settings.section access must be reported')
+})
+
+test('G-3: the shipped client registers into no Settings section', () => {
+  assert.deepEqual(gate.checkNoSettingsSection(CLIENT_SOURCE), [])
+})
+
+test('G-2: a kind exported without a renderer is reported', () => {
+  // The audit's reproduction: push a kind onto the exported list while
+  // RENDERERS has no entry for it. Every host↔client comparison still passes,
+  // and the page renders a text box.
+  const failures = gate.checkKindsAreRendered([...KINDS, 'slider'], CLIENT_SOURCE)
+  assert.ok(failures.length > 0, 'an exported kind with no renderer must be reported')
+  assert.match(failures.join('\n'), /slider/)
+  assert.match(failures.join('\n'), /RENDERERS/)
+})
+
+test('G-2: a renderer whose kind is not exported is reported', () => {
+  const failures = gate.checkKindsAreRendered(KINDS.filter((kind) => kind !== 'multiline'), CLIENT_SOURCE)
+  assert.ok(failures.length > 0, 'a renderer missing from the exported list must be reported')
+  assert.match(failures.join('\n'), /multiline/)
+})
+
+test('G-2: the shipped list and renderers agree', () => {
+  assert.deepEqual(gate.checkKindsAreRendered(KINDS, CLIENT_SOURCE), [])
+})
+
+test('G-4: a lookup that skips optionKey() is reported', () => {
+  // The exact drift the audit reproduced: the entry exists under the encoded
+  // key, the page looks up the raw value, and the select renders the raw value.
+  const mutated = CLIENT_SOURCE.replace(
+    'return t(`field.${field.key}.option.${optionKey(value)}`);',
+    'return t(`field.${field.key}.option.${value}`);',
+  )
+  assert.notEqual(mutated, CLIENT_SOURCE, 'the mutation must actually change the source')
+  const failures = gate.checkOptionLabelLookup(mutated)
+  assert.ok(failures.length > 0, 'a lookup that skips optionKey() must be reported')
+  assert.match(failures.join('\n'), /optionKey\(value\)/)
+})
+
+test('G-4: the shipped lookup goes through optionKey()', () => {
+  assert.deepEqual(gate.checkOptionLabelLookup(CLIENT_SOURCE), [])
+})
+
+test('G-4: two options sharing English text but differing in Chinese are accepted', () => {
+  // The value-based matching this replaced rejected this legitimate table.
+  const shared = field('systemImageVariant', 'select', {
+    optionLabel: {
+      google: { en: 'Google APIs', zh: 'Google APIs' },
+      aosp: { en: 'Google APIs', zh: 'AOSP 原生' },
+    },
+  })
+  const dictionary = { en: {}, zh: {} }
+  for (const [value, label] of Object.entries(shared.optionLabel)) {
+    dictionary.en[`field.systemImageVariant.option.${gate.optionKey(value)}`] = label.en
+    dictionary.zh[`field.systemImageVariant.option.${gate.optionKey(value)}`] = label.zh
+  }
+  assert.deepEqual(gate.checkOptionLabels([shared], dictionary), [])
+})
+
+test('G-4: an option filed under the wrong key is reported', () => {
+  const shared = field('systemImageVariant', 'select', {
+    optionLabel: { aosp: { en: 'AOSP', zh: 'AOSP 原生' } },
+  })
+  const failures = gate.checkOptionLabels([shared], {
+    en: { 'field.systemImageVariant.option.aosp': 'AOSP' },
+    zh: { 'field.systemImageVariant.option.aosp': 'AOSP 原生' },
+  })
+  assert.ok(failures.length > 0, 'the encoded key is the one the page looks up')
+  assert.match(failures.join('\n'), /option\.v\.aosp/)
 })

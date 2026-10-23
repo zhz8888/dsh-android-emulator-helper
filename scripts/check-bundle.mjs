@@ -37,6 +37,123 @@ function isRecord(value) {
 }
 
 /**
+ * The slot a bundle registers its own configuration page into.
+ *
+ * The Plugins page owns this key; a plugin page anywhere else is a page nothing
+ * renders.
+ */
+export const PLUGIN_PAGE_SLOT = 'plugins.bundle.config'
+
+/**
+ * Check that every kind in the exported list is one the page actually renders.
+ *
+ * `FIELD_KINDS` is derived from the client's `RENDERERS` map, which makes the
+ * two the same object *inside* the bundle — but the gate reads the exported list
+ * across the realm boundary, where "derived from the renderer map" is only a
+ * claim. A kind appended to the export (the audit's reproduction: `slider`
+ * pushed onto `FIELD_KINDS` and the matching kind added to both field tables)
+ * would pass every host↔client comparison and every existing test while the page
+ * rendered a text box, because `RENDERERS` had no entry for it.
+ *
+ * The check therefore reads the map's own keys out of the source and requires
+ * the exported list to be exactly that set — no kind may be added to the list
+ * without a renderer behind it.
+ *
+ * @param {string[]} kinds - the kinds the bundle exports.
+ * @param {string} source - `lib/client.js`.
+ * @returns {string[]} failure messages; empty when the invariant holds.
+ */
+export function checkKindsAreRendered(kinds, source) {
+  const text = String(source ?? '')
+  const body = /const\s+RENDERERS\s*=\s*\{([\s\S]{0,4000}?)\n\t\t\};/.exec(text)?.[1]
+  if (body === undefined) {
+    return ['lib/client.js must declare a RENDERERS map: the field kinds and the renderers must be one object']
+  }
+  // Top-level keys of the map literal: `text: {...}`, `number: {...}`, ...
+  const rendered = [...body.matchAll(/(?:^|\n)\t\t\t([A-Za-z][\w$]*)\s*:/g)].map((match) => match[1])
+  if (rendered.length === 0) {
+    return ['the RENDERERS map in lib/client.js must declare at least one kind']
+  }
+  const problems = []
+  for (const kind of kinds ?? []) {
+    if (!rendered.includes(kind)) {
+      problems.push(
+        `the bundle exports kind ${JSON.stringify(kind)} but RENDERERS has no renderer for it (it renders: ${rendered.join(', ')})`,
+      )
+    }
+  }
+  for (const kind of rendered) {
+    if (!(kinds ?? []).includes(kind)) {
+      problems.push(`RENDERERS declares kind ${JSON.stringify(kind)} but FIELD_KINDS does not export it`)
+    }
+  }
+  return problems
+}
+
+/**
+ * Check that the client registers into the slot it exports.
+ *
+ * `PLUGIN_SURFACE` is only a claim unless the registration actually uses it.
+ * The failure this catches was live: renaming the string literal passed to
+ * `ctx.slots.register` moved the page to a slot nothing renders while
+ * `PLUGIN_SURFACE` — the only thing the gate compared — stayed correct, so the
+ * gate stayed green.
+ *
+ * @param {string} source - `lib/client.js`.
+ * @returns {string[]} failure messages; empty when the invariant holds.
+ */
+export function checkRegistrationUsesSurface(source) {
+  const problems = []
+  const text = String(source ?? '')
+  const entries = [...text.matchAll(/slots\s*\.\s*register\s*\(\s*\{([\s\S]{0,600}?)\}\s*,/g)]
+  if (entries.length === 0) {
+    problems.push('lib/client.js must register its page through ctx.slots.register({ ... })')
+    return problems
+  }
+  for (const entry of entries) {
+    const body = entry[1] ?? ''
+    const name = /(?:^|[\s,{])name\s*:\s*([^,\n]+)/.exec(body)?.[1]?.trim()
+    const key = /(?:^|[\s,{])key\s*:\s*([^,\n]+)/.exec(body)?.[1]?.trim()
+    // The registration has to read the exported object rather than repeat a
+    // literal, so the two cannot disagree.
+    if (name !== 'PLUGIN_SURFACE.slot') {
+      problems.push(
+        `the page registration must take its slot from PLUGIN_SURFACE.slot, not ${JSON.stringify(name ?? 'nothing')}`,
+      )
+    }
+    if (key !== 'PLUGIN_SURFACE.key') {
+      problems.push(
+        `the page registration must take its key from PLUGIN_SURFACE.key, not ${JSON.stringify(key ?? 'nothing')}`,
+      )
+    }
+  }
+  return problems
+}
+
+/**
+ * Check that the bundle never registers into the Settings dialog.
+ *
+ * `settings.section` still exists in the harness and still renders third-party
+ * entries, so registering there is not a type error — it just gives the plugin a
+ * second configuration page, which is the thing this migration removed. Both
+ * quote styles are matched: the old check only looked for the double-quoted
+ * string, so a single-quoted registration slipped through.
+ *
+ * @param {string} source - `lib/client.js`.
+ * @returns {string[]} failure messages; empty when the invariant holds.
+ */
+export function checkNoSettingsSection(source) {
+  const text = String(source ?? '')
+  const quoted = /["'`]\s*settings\s*\.\s*section\s*["'`]/.test(text)
+  const bracket = /\[\s*["'`]settings["'`]\s*\+\s*["'`]\.section["'`]\s*\]/.test(text)
+  const bare = /(?:^|[^\w.$])settings\s*\.\s*section(?!\s*["'`])/.test(text)
+  if (quoted || bracket || bare) {
+    return ['lib/client.js must not register into the Settings dialog: plugin pages live on the Plugins page']
+  }
+  return []
+}
+
+/**
  * Every field kind must be one the halves actually handle.
  *
  * Both `lib/settings.js` and `lib/client.js` switch on `field.kind` with a
@@ -149,39 +266,78 @@ export function checkOptionLabels(fields, dictionary) {
       problems.push(`field "${field.key}": optionLabel must be a map of option values to {en, zh} labels`)
       continue
     }
-    // The generated entries live under this field's own prefix; the option
-    // value need not appear in the key, so the entry is found by its text.
-    const prefix = `field.${field.key}.option.`
+    // The page does not look a label up by its text: `optionLabel()` builds
+    // `field.<key>.option.<optionKey(value)>` and reads that exact key, so the
+    // gate has to look up the same key. Matching on the text instead was both
+    // too weak and too strict — it missed a drifted lookup key (the entry
+    // existed under a different key and the page rendered the raw value) and it
+    // reported a false positive when two options shared EN text but differed in
+    // ZH.
     for (const [value, label] of Object.entries(labels)) {
-      const expected = {}
+      const key = `field.${field.key}.option.${optionKey(value)}`
       for (const lang of ['en', 'zh']) {
         const text = label?.[lang]
         if (typeof text !== 'string' || text.length === 0) {
           problems.push(`field "${field.key}": the option ${JSON.stringify(value)} declares no ${lang} label`)
           continue
         }
-        expected[lang] = text
-      }
-      const enKey = Object.keys(en).find((key) => key.startsWith(prefix) && en[key] === expected.en)
-      const zhKey = Object.keys(zh).find((key) => key.startsWith(prefix) && zh[key] === expected.zh)
-      if (expected.en !== undefined && enKey === undefined) {
-        problems.push(
-          `field "${field.key}": the option ${JSON.stringify(value)} has no en dictionary entry (expected ${JSON.stringify(expected.en)})`,
-        )
-      }
-      if (expected.zh !== undefined && zhKey === undefined) {
-        problems.push(
-          `field "${field.key}": the option ${JSON.stringify(value)} has no zh dictionary entry (expected ${JSON.stringify(expected.zh)})`,
-        )
-      }
-      // The page looks one key up in either language, so the two texts have to
-      // sit under the same key; split across two, one language reads the key.
-      if (enKey !== undefined && zhKey !== undefined && enKey !== zhKey) {
-        problems.push(
-          `field "${field.key}": the option ${JSON.stringify(value)} is labelled under ${JSON.stringify(enKey)} in en and ${JSON.stringify(zhKey)} in zh`,
-        )
+        if (dictionary[lang][key] === undefined) {
+          problems.push(
+            `field "${field.key}": the option ${JSON.stringify(value)} has no ${lang} dictionary entry under ${JSON.stringify(key)} (expected ${JSON.stringify(text)})`,
+          )
+        } else if (dictionary[lang][key] !== text) {
+          problems.push(
+            `field "${field.key}": the ${lang} entry ${JSON.stringify(key)} reads ${JSON.stringify(dictionary[lang][key])} but the field declares ${JSON.stringify(text)}`,
+          )
+        }
       }
     }
+  }
+  return problems
+}
+
+/**
+ * The dictionary key suffix one option value is stored under.
+ *
+ * Mirrors `optionKey()` in `lib/client.js`: the empty option reserves the word
+ * `empty`, and every other value is percent-encoded behind a `v.` marker so a
+ * literal `"empty"` cannot collide with it. The client builds the key and reads
+ * it back through one function, so the gate has to reproduce that rule to check
+ * the entry the page will actually look up.
+ *
+ * @param {string} value - one option's value.
+ * @returns {string} the key suffix.
+ */
+export function optionKey(value) {
+  return value === '' ? 'empty' : `v.${encodeURIComponent(value)}`
+}
+
+/**
+ * Check that the render-time option-label lookup goes through `optionKey()`.
+ *
+ * The dictionary and the field table are both derived from the same `GROUPS`
+ * literal, so every entry the gate can see is generated by the same
+ * `optionKey()` the builder uses — which means a drift inside `optionKey()`
+ * cannot be observed through the exports at all: change it and both sides move
+ * together. What *can* drift is the lookup, because it is a separate call site.
+ * Replacing `${optionKey(value)}` with `${value}` in `optionLabel()` leaves every
+ * exported value correct and makes the page read a key that does not exist, so
+ * the select renders the raw value; this check is what catches that.
+ *
+ * @param {string} source - `lib/client.js`.
+ * @returns {string[]} failure messages; empty when the invariant holds.
+ */
+export function checkOptionLabelLookup(source) {
+  const text = String(source ?? '')
+  const body = /function\s+optionLabel\s*\([\s\S]{0,1200}?\n\t\t\}/.exec(text)?.[0]
+  if (body === undefined) {
+    return ['lib/client.js must define optionLabel(field, value, t) for the select labels']
+  }
+  const problems = []
+  if (!/`field\.\$\{field\.key\}\.option\.\$\{optionKey\(value\)\}`/.test(body)) {
+    problems.push(
+      'optionLabel() must look its dictionary entry up as `field.${field.key}.option.${optionKey(value)}` — the same key the dictionary builder emits',
+    )
   }
   return problems
 }
@@ -249,9 +405,11 @@ function main() {
       )
     }
   }
-  if (clientSource.includes('"settings.section"')) {
-    fail('lib/client.js must not register into the Settings dialog: plugin pages live on the Plugins page')
-  }
+  // The exported surface is a claim; the registration is the fact. Both are
+  // checked, because a page can be registered somewhere nothing renders while
+  // every exported value still reads correctly.
+  failures.push(...checkRegistrationUsesSurface(clientSource))
+  failures.push(...checkNoSettingsSection(clientSource))
 
   // --- field table agreement -------------------------------------------------
   const clientFields = exported.FIELD_META ?? []
@@ -292,6 +450,10 @@ function main() {
   if (Array.isArray(kinds) && kinds.length > 0) {
     failures.push(...checkFieldKinds([...FIELDS.values()], kinds).map((message) => `host ${message}`))
   }
+  // Comparing host and client only proves the two lists agree. It says nothing
+  // about whether the client can actually draw what it lists, which is the half
+  // the audit's `slider` reproduction slipped through.
+  failures.push(...checkKindsAreRendered(/** @type {string[]} */ (kinds), clientSource))
 
   // --- suggestion sources ----------------------------------------------------
   // A mistyped `suggest` name yields `undefined`, which becomes an empty list:
@@ -306,6 +468,7 @@ function main() {
   // Every label a field declares must exist as an entry in both languages, or
   // the select falls back to the raw option value without saying so.
   failures.push(...checkOptionLabels(clientFields, exported.DICTIONARY))
+  failures.push(...checkOptionLabelLookup(clientSource))
 
   // --- group agreement -------------------------------------------------------
   // The page draws one card per group and reads its heading from `group.<id>`.
