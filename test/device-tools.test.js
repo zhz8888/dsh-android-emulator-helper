@@ -87,7 +87,21 @@ async function argvWith(file, needle) {
  * @param {boolean} [options.png] - whether `exec-out screencap -p` prints a PNG.
  * @returns {string} shell source.
  */
-function adbBody({ argvFile, devices = [], flag, appearing = [], boot = '1', avdName, logcat = [], png = false }) {
+function adbBody({
+  argvFile,
+  devices = [],
+  flag,
+  appearing = [],
+  boot = '1',
+  avdName,
+  logcat = [],
+  png,
+  screencapPrefix,
+  screencapHangs = false,
+}) {
+  // A prefix models the chatter a multi-display device prints *before* the
+  // image, so it implies an image unless the test explicitly opts out.
+  const withPng = png ?? screencapPrefix !== undefined
   const out = [record(argvFile), 'if [ "$1" = "devices" ]; then', '  echo "List of devices attached"']
   for (const line of devices) out.push(`  echo ${JSON.stringify(line)}`)
   if (flag !== undefined && appearing.length > 0) {
@@ -113,14 +127,16 @@ function adbBody({ argvFile, devices = [], flag, appearing = [], boot = '1', avd
     for (const line of logcat) out.push(`  echo ${JSON.stringify(line)}`)
     out.push('  exit 0', 'fi')
   }
-  if (png) {
-    out.push(
-      'if [ "$3" = "exec-out" ]; then',
-      "  printf '\\211PNG\\r\\n\\032\\n'",
-      "  printf '\\000\\000\\000\\015IHDR'",
-      '  exit 0',
-      'fi',
-    )
+  if (withPng || screencapPrefix !== undefined || screencapHangs) {
+    out.push('if [ "$3" = "exec-out" ]; then')
+    if (screencapHangs) {
+      // A wedged adb client: the tool must still bound the call.
+      out.push('  trap "" TERM', '  while true; do sleep 0.2; done')
+    } else {
+      if (screencapPrefix !== undefined) out.push(`  printf '%s' ${JSON.stringify(screencapPrefix)}`)
+      if (withPng) out.push("  printf '\\211PNG\\r\\n\\032\\n'", "  printf '\\000\\000\\000\\015IHDR'")
+    }
+    out.push('  exit 0', 'fi')
   }
   out.push('exit 1')
   return out.join('\n')
@@ -500,6 +516,45 @@ test('the default path lands under the configured data directory', async () => {
   assert.match(capture.path, /^data\/screenshots\/.+\.png$/)
   assert.match(capture.path, /-R58M12ABCDE\.png$/)
   assert.deepEqual((await readFile(capture.absolutePath)).subarray(0, 8), PNG_MAGIC)
+})
+
+// A device with more than one display prints its `screencap` warning to stdout,
+// and `adb exec-out` forwards it, so the stream is "chatter + PNG". Writing it
+// verbatim produced a file no image tool could open while the tool still
+// reported success (pre-release audit B-1, reproduced on Pixel_10_Pro_Fold).
+const MULTI_DISPLAY_WARNING =
+  '[Warning] Multiple displays were found, but no display id was specified! Defaulting to the first display found, however this default is not guaranteed to be consistent across captures. A display id should be specified.\n'
+
+test('a device warning before the PNG is stripped from the written file', async () => {
+  const { rt } = await toolchain({
+    adb: (p) =>
+      adbBody({
+        argvFile: p.argvFile,
+        devices: [USB_DEVICE],
+        screencapPrefix: MULTI_DISPLAY_WARNING,
+      }),
+  })
+  const capture = await shot(rt, { serial: 'R58M12ABCDE', path: 'artifacts/shot.png' })
+  const bytes = await readFile(capture.absolutePath)
+  assert.deepEqual(bytes.subarray(0, 8), PNG_MAGIC, 'the file must start with the PNG signature')
+  assert.equal(bytes.includes('Multiple displays'), false, 'the device chatter must not reach the file')
+  assert.equal(capture.bytes, bytes.byteLength)
+})
+
+test('a capture with no PNG at all is refused instead of written', async () => {
+  const { rt } = await toolchain({
+    adb: (p) =>
+      adbBody({
+        argvFile: p.argvFile,
+        devices: [USB_DEVICE],
+        png: false,
+        screencapPrefix: 'ERROR: could not get idle state.\n',
+      }),
+  })
+  await assert.rejects(
+    () => shot(rt, { serial: 'R58M12ABCDE', path: 'artifacts/shot.png' }),
+    /screencap produced no PNG image data/,
+  )
 })
 
 test('an escaping screenshot path is refused before the capture runs', async () => {

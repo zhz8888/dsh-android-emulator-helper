@@ -185,6 +185,16 @@ test('APK selection understands a flavor directory', () => {
   assert.equal(pickApk(hits, 'debug'), '/p/app/build/outputs/apk/freeDebug/app-free-debug.apk')
 })
 
+test('a multi-display warning before the PNG is stripped to the image', async () => {
+  const { pngPayload } = await import('../lib/providers/screenshot.js')
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00])
+  const chatter = Buffer.from('[Warning] Multiple displays were found, but no display id was specified!\n')
+  const payload = pngPayload(Buffer.concat([chatter, png]))
+  assert.deepEqual(payload, png)
+  assert.deepEqual(pngPayload(png), png, 'a clean stream is unchanged')
+  assert.throws(() => pngPayload(chatter), /screencap produced no PNG image data/)
+})
+
 test('a device serial is reduced to a filesystem-safe filename fragment', async () => {
   const { fileSafe } = await import('../lib/providers/screenshot.js')
   assert.equal(fileSafe('emulator-5554'), 'emulator-5554')
