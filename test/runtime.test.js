@@ -116,6 +116,49 @@ test('the screenshot and log directories resolve against the session workspace',
   assert.equal(await rt.buildLogs(), path.join(workspace, 'out', 'logs'))
 })
 
+test('a leading ~ in dataDir is expanded to the home directory', () => {
+  // The settings page's own placeholder for this field is
+  // `~/.dsh/android-emulator-helper`, so a user who types the suggestion used
+  // to get a directory literally named `~` created inside their project.
+  const rt = createRuntime({
+    config: liveConfig({ dataDir: '~/.dsh/android-emulator-helper' }),
+    exec: execWithCwd(WORKSPACE),
+    env: { HOME: '/home/tester' },
+  })
+  assert.equal(rt.dataRoot, path.join('/home/tester', '.dsh', DATA_DIR_NAME))
+})
+
+test('a bare ~ in dataDir expands to the home directory', () => {
+  const rt = createRuntime({
+    config: liveConfig({ dataDir: '~' }),
+    exec: execWithCwd(WORKSPACE),
+    env: { HOME: '/home/tester' },
+  })
+  assert.equal(rt.dataRoot, '/home/tester')
+})
+
+test('a leading ~ in screenshotDir is expanded to the home directory', async () => {
+  // A real home directory under the test's temp tree, so the getter — which
+  // creates the directory on demand — has somewhere writable to create.
+  const home = await mkdtemp(path.join(os.tmpdir(), 'dsh-home-'))
+  const rt = createRuntime({
+    config: liveConfig({ screenshotDir: '~/shots' }),
+    exec: execWithCwd(WORKSPACE),
+    env: { HOME: home },
+  })
+  assert.equal(await rt.screenshots(), path.join(home, 'shots'))
+})
+
+test('a ~ that is not the first segment is left alone', () => {
+  // `~` is a legal filename character; only a leading tilde is a home reference.
+  const rt = createRuntime({
+    config: liveConfig({ dataDir: 'out/~backup' }),
+    exec: execWithCwd(WORKSPACE),
+    env: { HOME: '/home/tester' },
+  })
+  assert.equal(rt.dataRoot, path.join(WORKSPACE, 'out', '~backup'))
+})
+
 // ---------------------------------------------------------------------------
 // The data root
 // ---------------------------------------------------------------------------
