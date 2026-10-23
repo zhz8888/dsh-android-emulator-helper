@@ -51,7 +51,7 @@ On a machine with an Android SDK, a JDK and DSH installed:
 | Android SDK | `sdkPath` on the plugin's configuration page, else `ANDROID_HOME`, `ANDROID_SDK_ROOT`, then the common install paths. |
 | Platform tools, emulator and a system image | `adb` and `emulator` come from the SDK; an AVD needs a system image for the API level you target. |
 | JDK | `jdkMajor` (`17` by default) selects the JDK a build runs on; the generated project's JVM target is derived from it and clamped to [17, 21]. |
-| Gradle | `android_build_app` uses the project's `./gradlew` when it has one and `gradle` from `PATH` otherwise, and can generate the wrapper with that `gradle`. The project `android_create_app` writes ships no wrapper. |
+| Gradle | `android_build_app` uses the project's `./gradlew` when it has one and `gradle` from `PATH` otherwise, and generates the wrapper with that `gradle`, pinning it to the installed Gradle's own version. The project `android_create_app` writes ships no wrapper. |
 | A device or an AVD | An attached device, or an AVD to boot; `autoStartEmulator` decides whether the tools may boot one themselves. |
 | Node.js ≥ 22 | The DSH host runtime. |
 
@@ -214,6 +214,10 @@ The direct spawn is a deliberate trade-off: `gradlew`, `adb` and `emulator` beha
 
 ## Known limitations
 
+- **A machine with no global Gradle cannot build a generated project.** `android_create_app`
+  writes no `gradlew`, and `android_build_app` can only generate one by running the
+  `gradle` it finds on `PATH`; without one it fails with an explicit message. Install
+  Gradle once, or run `gradle wrapper` in the project root yourself.
 - **Linux is unsupported**, exactly as in the original; `android_preflight` reports it.
 - `android_start_emulator` always starts a new emulator and never reuses one. Pass `serial` to the other tools to reuse a target.
 - `android_create_avd` always answers `no` to `avdmanager`'s confirmation, so it can never silently trigger a multi-gigabyte image download; install the image with `sdkmanager` first.

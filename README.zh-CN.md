@@ -51,7 +51,7 @@
 | Android SDK | 插件配置页的 `sdkPath`，留空则依次探测 `ANDROID_HOME`、`ANDROID_SDK_ROOT` 与常见安装路径。 |
 | platform-tools、emulator 与系统镜像 | `adb` 与 `emulator` 来自 SDK；创建 AVD 需要与目标 API 级别匹配的系统镜像。 |
 | JDK | `jdkMajor`（默认 `17`）决定构建用哪个 JDK；生成工程的 JVM target 由它推导并钳制在 [17, 21]。 |
-| Gradle | `android_build_app` 优先用工程自带的 `./gradlew`，没有就用 `PATH` 里的 `gradle`（也能用后者生成 wrapper）。而 `android_create_app` 生成的工程不带 wrapper。 |
+| Gradle | `android_build_app` 优先用工程自带的 `./gradlew`，没有就用 `PATH` 里的 `gradle` 生成 wrapper，并固定为本机已安装的 Gradle 版本。而 `android_create_app` 生成的工程不带 wrapper。 |
 | 一台设备或一个 AVD | 已连接设备，或一个可启动的 AVD；`autoStartEmulator` 决定工具能否自行启动模拟器。 |
 | Node.js ≥ 22 | DSH 宿主运行时。 |
 
@@ -192,6 +192,9 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 
 ## 已知限制
 
+- **本机没有全局 Gradle 时，生成的工程无法构建。** `android_create_app` 不写 `gradlew`，
+  而 `android_build_app` 只能借助 `PATH` 里的 `gradle` 生成 wrapper；没有就会明确报错。
+  请先装一次 Gradle，或自己在工程根目录跑 `gradle wrapper`。
 - **Linux 不支持**，与原插件一致；`android_preflight` 会明确报告。
 - `android_start_emulator` 永远启动新模拟器，从不复用已有目标（原插件语义）。复用请把 `serial` 传给其他工具。
 - `android_create_avd` 对 `avdmanager` 的确认提示固定回答 `no`，绝不静默触发数 GB 的镜像下载；请先用 `sdkmanager` 装好镜像。
