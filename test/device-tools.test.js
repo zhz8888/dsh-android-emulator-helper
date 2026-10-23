@@ -84,7 +84,9 @@ async function argvWith(file, needle) {
  * @param {string} [options.boot] - value of `getprop sys.boot_completed`.
  * @param {string} [options.avdName] - answer of `emu avd name`.
  * @param {string[]} [options.logcat] - lines `logcat` prints.
- * @param {boolean} [options.png] - whether `exec-out screencap -p` prints a PNG.
+ * @param {boolean} [options.png] - whether `exec-out screencap -p` prints a PNG; defaults to true when `screencapPrefix` is set.
+ * @param {string} [options.screencapPrefix] - text the device prints before the PNG, as a multi-display device does.
+ * @param {boolean} [options.screencapHangs] - whether `exec-out screencap -p` ignores SIGTERM instead of answering.
  * @returns {string} shell source.
  */
 function adbBody({
@@ -565,6 +567,24 @@ test('a capture with no PNG at all is refused instead of written', async () => {
     () => shot(rt, { serial: 'R58M12ABCDE', path: 'artifacts/shot.png' }),
     /screencap produced no PNG image data/,
   )
+})
+
+test('a capture that ignores SIGTERM still settles at its deadline', { skip: process.platform === 'win32', timeout: 20_000 }, async () => {
+  const { rt } = await toolchain({
+    adb: (p) => adbBody({ argvFile: p.argvFile, devices: [USB_DEVICE], screencapHangs: true }),
+  })
+  const started = Date.now()
+  await assert.rejects(
+    () => shot(rt, { serial: 'R58M12ABCDE', timeoutMs: 300 }),
+    (error) => {
+      assert.match(error.message, /timed out|screencap/i)
+      return true
+    },
+  )
+  const elapsed = Date.now() - started
+  // 300ms deadline + the 2s SIGTERM->SIGKILL grace + the 500ms drain window.
+  // The old hand-rolled spawn never settled at all, so any bound proves the fix.
+  assert.ok(elapsed < 10_000, `the capture must settle at its deadline, not hang: ${elapsed}ms`)
 })
 
 test('an escaping screenshot path is refused before the capture runs', async () => {
