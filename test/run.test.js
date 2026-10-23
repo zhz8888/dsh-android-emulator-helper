@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { brief, run, runBytes } from '../lib/util/run.js'
+import { brief, callTimeoutMs, run, runBytes } from '../lib/util/run.js'
 
 /**
  * Child-process hardening for the one helper every provider uses.
@@ -72,4 +72,13 @@ test('brief never returns an empty message', () => {
 test('brief still prefers real output when there is any', () => {
   const withOutput = { cmd: ['adb'], code: 1, stdout: 'boom', stderr: '', timed: false }
   assert.equal(brief(withOutput), 'boom')
+})
+
+test('callTimeoutMs converts seconds and refuses a non-positive override', () => {
+  assert.equal(callTimeoutMs(undefined, 3), 3_000)
+  assert.equal(callTimeoutMs(250, 3), 250)
+  assert.throws(() => callTimeoutMs(0, 3), /Invalid timeoutMs: 0/)
+  assert.throws(() => callTimeoutMs(-1, 3), /Invalid timeoutMs: -1/)
+  assert.throws(() => callTimeoutMs(Number.NaN, 3), /Invalid timeoutMs/)
+  assert.throws(() => callTimeoutMs(Number.POSITIVE_INFINITY, 3), /Invalid timeoutMs/)
 })

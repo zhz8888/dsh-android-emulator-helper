@@ -89,6 +89,20 @@ test('buildApp defaults to the application module and its application id', { ski
   assert.ok(report.apkPath?.endsWith('app-debug.apk'))
 })
 
+test('buildApp refuses a non-positive timeoutMs instead of killing Gradle at once', { skip: !POSIX }, async () => {
+  // The device tools reject a non-positive override, but the build path used to
+  // pass it straight to setTimeout: `timeoutMs: 0` killed Gradle in milliseconds
+  // and reported `timedOut: true` with an empty output and no diagnostics.
+  const root = await mkdtemp(path.join(tmpdir(), 'aemh-timeout-'))
+  await writeFile(path.join(root, 'settings.gradle.kts'), 'include(":app")\n', 'utf8')
+  await moduleDir(root, 'app', 'android { defaultConfig { applicationId = "com.example.app" } }\n', true)
+  await fakeGradle(root)
+
+  const rt = runtimeAt(root, path.join(root, 'data'))
+  await assert.rejects(() => buildApp(rt, { timeoutMs: 0 }), /Invalid timeoutMs: 0/)
+  await assert.rejects(() => buildApp(rt, { timeoutMs: -5 }), /Invalid timeoutMs: -5/)
+})
+
 test('a failed build-log write does not replace a successful build result', { skip: !POSIX }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'aemh-log-'))
   await writeFile(path.join(root, 'settings.gradle.kts'), 'include(":app")\n', 'utf8')
