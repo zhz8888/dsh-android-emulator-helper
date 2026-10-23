@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { run, runBytes } from '../lib/util/run.js'
+import { brief, run, runBytes } from '../lib/util/run.js'
 
 /**
  * Child-process hardening for the one helper every provider uses.
@@ -56,4 +56,20 @@ test('runBytes applies the same SIGTERM escalation as run()', { skip: !POSIX, ti
   const elapsed = Date.now() - started
   assert.equal(out.timed, true)
   assert.ok(elapsed < 5_000, `runBytes must bound the call like run(): ${elapsed}ms`)
+})
+
+test('brief never returns an empty message', () => {
+  // A child killed by a signal writes nothing, so the old brief() returned ''
+  // and every `throw new Error(brief(out))` produced "android_install_app: ".
+  const empty = { cmd: ['adb', 'install'], code: 1, stdout: '', stderr: '', timed: false }
+  assert.notEqual(brief(empty).trim(), '')
+  assert.match(brief(empty), /exited with code 1/)
+  assert.match(brief({ ...empty, timed: true }), /timed out/)
+  assert.match(brief({ ...empty, code: 137 }), /signal 9/)
+  assert.match(brief({ ...empty, code: 127 }), /could not be started/)
+})
+
+test('brief still prefers real output when there is any', () => {
+  const withOutput = { cmd: ['adb'], code: 1, stdout: 'boom', stderr: '', timed: false }
+  assert.equal(brief(withOutput), 'boom')
 })
