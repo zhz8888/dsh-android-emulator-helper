@@ -16,7 +16,7 @@ browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 203 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 233 tests: unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -356,7 +356,7 @@ see a type error at all.
 |---|---|---|
 | Unit and parsers | `pnpm test` | Bundle load contract, manifest and patch contract, settings projection (live volatile reads, env fallback, out-of-range fallback), every ported parser (`adb devices`, `emulator -list-avds`, UI Automator XML, `input text` escaping, APK selection, JDK major normalisation), and the lossless-JSON projection |
 | Configuration page render | `pnpm test` (`client-render.test.js`) | The whole form rendered with real React and `react-dom/server`: the registration targets `plugins.bundle.config` keyed by the package name and nothing else, every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, the override badge and reset, both route buttons, no title of its own, and no action bar while nothing is staged |
-| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the exported plugin surface is the Plugins page's `plugins.bundle.config` keyed by the package name (and the bundle no longer registers a Settings section), the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, every field's kind is one the page actually renders and every `suggest` names a list the page provides, the two fixed dictionaries carry the same keys and every declared option label has text in both languages, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
+| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the exported plugin surface is the Plugins page's `plugins.bundle.config` keyed by the package name **and the registration itself reads that exported surface rather than repeating the literals** (and the bundle registers into no Settings section, in either quote style), the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, every field's kind is one the page actually renders (checked against the `RENDERERS` map's own keys, not just against the exported list) and every `suggest` names a list the page provides, the two fixed dictionaries carry the same keys and every declared option label sits under the exact `field.<key>.option.<optionKey(value)>` key the page looks up, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
 | Route integration | `test/routes-integration.test.js` | The two configuration routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 17 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing both routes |
 | Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, **all 23 dispatched through the registry**, every argument schema enforced by the registry, every declared result schema validated for shape (device-backed tools fail before a value exists), malformed arguments refused, unknown names unresolved, 17 volatile fields, full unregistration on dispose |
 | Type gate | `tsc -p tsconfig.json --noEmit` and `tsc -p tsconfig.client.json --noEmit` | The host half's contracts against the real `@deepseek-ai/*` declarations, and the browser half's contracts against the real `react` and the real `dsh-client-ui-primitives` declarations — the two halves checked apart, because they run in different realms |
@@ -494,6 +494,12 @@ behaviour and will report the bugs this version fixed.
   termination, which is why every call carries its own timeout and `SIGTERM`.
 - Let a generated project depend on hand edits to build. `android_create_app`
   must emit a project that compiles as-is; `lib/providers/project-template.js`
-  pins the JVM target for exactly that reason.
+  pins the JVM target and the configured `buildToolsVersion` for exactly that
+  reason. "As-is" means **no hand edits**, not "no toolchain": the template
+  still ships no `gradlew`, so a machine with no global Gradle cannot build the
+  project until `android_build_app` generates the wrapper — which it does by
+  running the installed `gradle wrapper`, and that needs one. `README.md` states
+  this honestly under "Known limitations"; do not describe the generated
+  project as self-contained.
 - Track `docs/`. It is not part of the deliverable: nothing in it ships, nothing
   reads it at runtime, and no test loads it.
