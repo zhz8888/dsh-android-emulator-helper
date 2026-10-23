@@ -700,7 +700,7 @@ test('starting an emulator that stays unauthorized reports the state, not a bare
   assert.ok(error instanceof Error)
   // Both halves matter: the state is named, and the hint says what to do about
   // it. Without them this failure is indistinguishable from a slow boot.
-  assert.match(error.message, /Timed out waiting for Android Emulator to boot/)
+  assert.match(error.message, /Emulator boot deadline reached before Android finished booting/)
   assert.match(error.message, /emulator-5556:unauthorized/)
   assert.match(error.message, /Accept the RSA prompt on screen/)
   // The fake must not outlive the test.

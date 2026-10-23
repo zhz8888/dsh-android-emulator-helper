@@ -714,7 +714,7 @@ test('an explicit timeoutMs overrides the bootTimeoutSeconds setting', { timeout
   })
   await assert.rejects(
     () => ensureDevice(rt, { serial: 'emulator-5554', timeoutMs: 100 }),
-    /Timed out waiting for Android Emulator to boot/,
+    /Emulator boot deadline reached before emulator-5554 finished booting/,
   )
 })
 
@@ -742,7 +742,10 @@ test('a new emulator stuck in unauthorized burns the boot timeout, then names th
     await assert.rejects(
       () => startEmulator(rt, {}),
       (error) => {
-        assert.match(error.message, /Timed out waiting for Android Emulator to boot/)
+        // The deadline message must not claim the emulator failed to boot: the
+        // emulator is still running and may finish booting after the call.
+        assert.match(error.message, /Emulator boot deadline reached before Android finished booting/)
+        assert.match(error.message, /may still finish booting after this call returns/)
         assert.match(error.message, /emulator-5558:unauthorized/)
         return true
       },
