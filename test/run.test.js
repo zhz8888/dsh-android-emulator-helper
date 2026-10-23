@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { run } from '../lib/util/run.js'
+import { run, runBytes } from '../lib/util/run.js'
 
 /**
  * Child-process hardening for the one helper every provider uses.
@@ -35,4 +35,25 @@ test('a grandchild holding stdout does not keep the call pending', { skip: !POSI
   const elapsed = Date.now() - started
   assert.equal(out.code, 0)
   assert.ok(elapsed < 2_000, `close waits for the inherited pipe; run() must bound that wait: ${elapsed}ms`)
+})
+
+test('runBytes keeps the raw stdout bytes that run() would decode', { skip: !POSIX }, async () => {
+  // `adb exec-out screencap -p` is the reason this exists: decoding a PNG as
+  // UTF-8 does not survive the round trip.
+  const out = await runBytes(['/bin/sh', '-c', "printf '\\211PNG\\r\\n\\032\\n'"])
+  assert.equal(out.code, 0)
+  assert.deepEqual(out.bytes, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  // `stdout` is a lossy UTF-8 decode and cannot be used to recover the payload:
+  // 0x89 is not valid UTF-8, so it becomes U+FFFD. This is exactly why `bytes`
+  // has to exist, and the assertion pins that trap rather than papering over it.
+  assert.notEqual(Buffer.from(out.stdout, 'latin1').equals(out.bytes), true)
+  assert.equal(out.bytes[0], 0x89)
+})
+
+test('runBytes applies the same SIGTERM escalation as run()', { skip: !POSIX, timeout: 20_000 }, async () => {
+  const started = Date.now()
+  const out = await runBytes(['/bin/sh', '-c', 'trap "" TERM; sleep 5'], { timeout: 100 })
+  const elapsed = Date.now() - started
+  assert.equal(out.timed, true)
+  assert.ok(elapsed < 5_000, `runBytes must bound the call like run(): ${elapsed}ms`)
 })
