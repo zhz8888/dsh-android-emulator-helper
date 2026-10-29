@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
@@ -10,6 +10,7 @@ import { parseAdbDevices, pickDevice } from '../lib/providers/device.js'
 import { bootTimeoutMs, createAvd, ensureDevice, startEmulator, stopEmulator } from '../lib/providers/avd.js'
 import { logs } from '../lib/providers/logs.js'
 import { shot } from '../lib/providers/screenshot.js'
+import { writeFakeTool } from './helpers/fake-tool.mjs'
 import { preflightOk } from '../lib/providers/preflight.js'
 
 /**
@@ -39,18 +40,11 @@ const USB_DEVICE = 'R58M12ABCDE           device usb:336592896X product:oriole m
 const EMULATOR_DEVICE = 'emulator-5554          device product:sdk model:sdk device:emu transport_id:1'
 
 /**
- * Shell fragment appending one invocation's argv to `file`, as a single
- * `|`-separated record, so a test can assert exactly what a provider spawned.
+ * Read the argv records a fake wrote.
  *
- * @param {string} file - absolute record path.
- * @returns {string} shell source.
- */
-function record(file) {
-  return `{ for a in "$@"; do printf '%s|' "$a"; done; printf '\\n'; } >> ${JSON.stringify(file)}`
-}
-
-/**
- * Read the argv records {@link record} wrote.
+ * Each invocation is one line of `|`-separated arguments with a trailing
+ * separator, which is what the `record` step of `helpers/fake-tool.mjs`
+ * produces on both platforms.
  *
  * @param {string} file - absolute record path.
  * @returns {Promise<string[][]>} one argv per invocation.
@@ -74,7 +68,11 @@ async function argvWith(file, needle) {
 }
 
 /**
- * Build a fake `adb` body.
+ * Build the steps of a fake `adb`.
+ *
+ * The steps are rendered for the host by `helpers/fake-tool.mjs` — a shell
+ * script on POSIX, a PowerShell script behind a `.cmd` launcher on Windows —
+ * so the same fake drives the real providers on both.
  *
  * @param {object} options - what the fake answers.
  * @param {string} options.argvFile - where to record invocations.
@@ -86,8 +84,8 @@ async function argvWith(file, needle) {
  * @param {string[]} [options.logcat] - lines `logcat` prints.
  * @param {boolean} [options.png] - whether `exec-out screencap -p` prints a PNG; defaults to true when `screencapPrefix` is set.
  * @param {string} [options.screencapPrefix] - text the device prints before the PNG, as a multi-display device does.
- * @param {boolean} [options.screencapHangs] - whether `exec-out screencap -p` ignores SIGTERM instead of answering.
- * @returns {string} shell source.
+ * @param {boolean} [options.screencapHangs] - whether `exec-out screencap -p` ignores termination instead of answering.
+ * @returns {object[]} the fake's steps.
  */
 function adbBody({
   argvFile,
@@ -104,44 +102,56 @@ function adbBody({
   // A prefix models the chatter a multi-display device prints *before* the
   // image, so it implies an image unless the test explicitly opts out.
   const withPng = png ?? screencapPrefix !== undefined
-  const out = [record(argvFile), 'if [ "$1" = "devices" ]; then', '  echo "List of devices attached"']
-  for (const line of devices) out.push(`  echo ${JSON.stringify(line)}`)
+  const steps = [{ record: argvFile }]
+
+  /** @type {object[]} */
+  const listing = [{ out: 'List of devices attached' }]
+  for (const line of devices) listing.push({ out: line })
   if (flag !== undefined && appearing.length > 0) {
-    out.push(`  if [ -f ${JSON.stringify(flag)} ]; then`)
-    for (const line of appearing) out.push(`    echo ${JSON.stringify(line)}`)
-    out.push('  fi')
+    listing.push({ ifFile: flag, then: appearing.map((line) => ({ out: line })) })
   }
-  out.push('  exit 0', 'fi')
-  // `adb shell` passes the device command as one argv element, so `$4` is
-  // "getprop sys.boot_completed" rather than a bare "getprop".
-  out.push(
-    'if [ "$3" = "shell" ]; then',
-    '  case "$4" in',
-    `    getprop*) echo ${JSON.stringify(boot)}; exit 0 ;;`,
-    '  esac',
-    'fi',
-  )
+  listing.push({ exit: 0 })
+  steps.push({ ifSub: 'devices', then: listing })
+
+  // `adb shell` passes the device command as one argv element, so the fourth
+  // argument is "getprop sys.boot_completed" rather than a bare "getprop".
+  steps.push({
+    ifArg: [3, 'shell'],
+    then: [{ ifArgPrefix: [4, 'getprop'], then: [{ out: boot }, { exit: 0 }] }],
+  })
+
   if (avdName !== undefined) {
-    out.push('if [ "$3" = "emu" ]; then', `  echo ${JSON.stringify(avdName)}`, '  echo OK', '  exit 0', 'fi')
+    steps.push({ ifArg: [3, 'emu'], then: [{ out: avdName }, { out: 'OK' }, { exit: 0 }] })
   }
+
   if (logcat.length > 0) {
-    out.push('if [ "$3" = "logcat" ]; then')
-    for (const line of logcat) out.push(`  echo ${JSON.stringify(line)}`)
-    out.push('  exit 0', 'fi')
+    steps.push({
+      ifArg: [3, 'logcat'],
+      then: [...logcat.map((line) => ({ out: line })), { exit: 0 }],
+    })
   }
+
   if (withPng || screencapPrefix !== undefined || screencapHangs) {
-    out.push('if [ "$3" = "exec-out" ]; then')
-    if (screencapHangs) {
-      // A wedged adb client: the tool must still bound the call.
-      out.push('  trap "" TERM', '  while true; do sleep 0.2; done')
-    } else {
-      if (screencapPrefix !== undefined) out.push(`  printf '%s' ${JSON.stringify(screencapPrefix)}`)
-      if (withPng) out.push("  printf '\\211PNG\\r\\n\\032\\n'", "  printf '\\000\\000\\000\\015IHDR'")
-    }
-    out.push('  exit 0', 'fi')
+    steps.push({
+      ifArg: [3, 'exec-out'],
+      then: screencapHangs
+        ? // A wedged adb client: the tool must still bound the call.
+          [{ hang: true }]
+        : [
+            ...(screencapPrefix !== undefined ? [{ outRaw: screencapPrefix }] : []),
+            ...(withPng
+              ? [
+                  { outBytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] },
+                  { outBytes: [0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52] },
+                ]
+              : []),
+            { exit: 0 },
+          ],
+    })
   }
-  out.push('exit 1')
-  return out.join('\n')
+
+  steps.push({ exit: 1 })
+  return steps
 }
 
 /**
@@ -152,7 +162,7 @@ function adbBody({
  * declared as a function of this run's paths, so a body can reference the argv
  * record, the spawn marker and the like without string surgery afterwards.
  *
- * @param {{adb?: Function|string, emulator?: Function|string, avdmanager?: Function|string, config?: object, env?: object}} [options] - fakes and overrides.
+ * @param {{adb?: Function|object[], emulator?: Function|object[], avdmanager?: Function|object[], config?: object, env?: object}} [options] - fakes and overrides.
  * @returns {Promise<{rt: object, paths: object}>} the runtime and its directories.
  */
 async function toolchain({ adb, emulator, avdmanager, config = {}, env = {} } = {}) {
@@ -169,36 +179,94 @@ async function toolchain({ adb, emulator, avdmanager, config = {}, env = {} } = 
   }
   for (const [name, body] of Object.entries({ adb, emulator, avdmanager })) {
     if (body === undefined) continue
-    const file = path.join(binDir, name)
-    await writeFile(file, `#!/bin/sh\n${typeof body === 'function' ? body(paths) : body}\n`, 'utf8')
-    await chmod(file, 0o755)
+    await writeFakeTool(binDir, name, typeof body === 'function' ? body(paths) : body)
   }
   const rt = createRuntime({
-    config: { dataDir: { get: () => path.join(workDir, 'data') }, ...config },
+    config: {
+      dataDir: { get: () => path.join(workDir, 'data') },
+      // The plugin discovers the Android SDK on its own — including by scanning
+      // the drive roots — so a host that has one installed would otherwise run
+      // the real tools instead of these fakes. A configured root is
+      // authoritative: point it at a directory that holds no tools, and the
+      // plugin falls back to `PATH`, which is where the fakes live.
+      sdkPath: { get: () => workDir },
+      ...config,
+    },
     exec: undefined,
     logger: QUIET,
     cwd: workDir,
-    env: { ...process.env, PATH: `${binDir}:/usr/bin:/bin`, ...env },
+    env: {
+      ...process.env,
+      PATH: [binDir, process.env.PATH].filter(Boolean).join(path.delimiter),
+      ...env,
+    },
   })
   return { rt, paths }
 }
 
 /** An `adb` with nothing attached — the state after an emulator dies. */
-const ADB_EMPTY = (p) =>
-  `${record(p.argvFile)}\nif [ "$1" = "devices" ]; then echo "List of devices attached"; exit 0; fi\nexit 1`
+const ADB_EMPTY = (p) => [
+  { record: p.argvFile },
+  { ifSub: 'devices', then: [{ out: 'List of devices attached' }, { exit: 0 }] },
+  { exit: 1 },
+]
+
+/**
+ * A fake `emulator` that only answers `-list-avds`, then fails.
+ *
+ * @param {...string} avds - the AVD names it lists.
+ * @returns {Function} a factory of the fake's steps.
+ */
+const EMULATOR_LISTS =
+  (...avds) =>
+  () => [
+    { ifSub: '-list-avds', then: [...avds.map((avd) => ({ out: avd })), { exit: 0 }] },
+    { exit: 1 },
+  ]
+
+/**
+ * A fake `emulator` that lists AVDs, records its spawn, then fails silently.
+ *
+ * @param {...string} avds - the AVD names it lists.
+ * @returns {Function} a factory of the fake's steps.
+ */
+const EMULATOR_FAILS =
+  (...avds) =>
+  (p) => [
+    { ifSub: '-list-avds', then: [...avds.map((avd) => ({ out: avd })), { exit: 0 }] },
+    { record: p.spawnArgv },
+    { exit: 1 },
+  ]
+
+/**
+ * The same, but it prints a start banner before failing — the shape a real
+ * emulator has when it rejects a snapshot.
+ *
+ * @param {...string} avds - the AVD names it lists.
+ * @returns {Function} a factory of the fake's steps.
+ */
+const EMULATOR_WARNS =
+  (...avds) =>
+  (p) => [
+    { ifSub: '-list-avds', then: [...avds.map((avd) => ({ out: avd })), { exit: 0 }] },
+    { record: p.spawnArgv },
+    { out: 'INFO  | starting' },
+    { exit: 1 },
+  ]
+
 
 // ---------------------------------------------------------------------------
 // Session-workspace path policy
 // ---------------------------------------------------------------------------
 
 test('a relative path resolves under the session workspace', () => {
-  assert.equal(inside('/work/project', 'artifacts/shot.png'), '/work/project/artifacts/shot.png')
-  assert.equal(inside('/work/project', 'a/../b.png'), '/work/project/b.png')
-  assert.equal(inside('/work/project', '.'), '/work/project')
+  assert.equal(inside('/work/project', 'artifacts/shot.png'), path.resolve('/work/project', 'artifacts/shot.png'))
+  assert.equal(inside('/work/project', 'a/../b.png'), path.resolve('/work/project', 'b.png'))
+  assert.equal(inside('/work/project', '.'), path.resolve('/work/project'))
 })
 
 test('an absolute path inside the workspace is accepted', () => {
-  assert.equal(inside('/work/project', '/work/project/shot.png'), '/work/project/shot.png')
+  assert.equal(inside('/work/project', '/work/project/shot.png'), path.resolve('/work/project/shot.png'))
 })
 
 test('an absolute path outside the workspace is refused', () => {
@@ -223,6 +291,10 @@ test('case-insensitive volumes compare the workspace case-insensitively', { skip
   assert.equal(inside('/work/Project', '/work/project/shot.png'), path.resolve('/work/project/shot.png'))
 })
 
+// Creating a directory symlink on Windows needs SeCreateSymbolicLinkPrivilege —
+// an elevated shell or Developer Mode — so the fixture cannot be built on a
+// stock Windows host. `insideForWrite` itself is platform-neutral and does run
+// on Windows in the other tests; only the link it has to follow is missing.
 test('a symbolic link inside the workspace cannot carry a write outside', { skip: process.platform === 'win32' }, async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), 'aemh-ws-'))
   const outside = await mkdtemp(path.join(tmpdir(), 'aemh-out-'))
@@ -397,7 +469,7 @@ test('ensureDevice refuses instead of starting an emulator when autoStartEmulato
   // and the very next device call says nothing is ready.
   const { rt } = await toolchain({
     adb: (p) => adbBody({ argvFile: p.argvFile, devices: ['emulator-5556          unauthorized'] }),
-    emulator: 'if [ "$1" = "-list-avds" ]; then echo Pixel_10; exit 0; fi\nexit 1',
+    emulator: EMULATOR_LISTS('Pixel_10'),
     config: { autoStartEmulator: { get: () => false } },
   })
   await assert.rejects(() => ensureDevice(rt, {}), /autoStartEmulator is disabled/)
@@ -514,7 +586,7 @@ async function shotRuntime() {
 test('an explicit relative path is written under the session workspace', async () => {
   const { rt, paths } = await shotRuntime()
   const capture = await shot(rt, { serial: 'R58M12ABCDE', path: 'artifacts/shot.png' })
-  assert.equal(capture.path, 'artifacts/shot.png')
+  assert.equal(capture.path, path.join('artifacts', 'shot.png'))
   assert.equal(capture.absolutePath, path.join(paths.workDir, 'artifacts', 'shot.png'))
   assert.equal(capture.bytes, 16)
   const bytes = await readFile(capture.absolutePath)
@@ -525,7 +597,7 @@ test('an explicit relative path is written under the session workspace', async (
 test('the default path lands under the configured data directory', async () => {
   const { rt } = await shotRuntime()
   const capture = await shot(rt, { serial: 'R58M12ABCDE' })
-  assert.match(capture.path, /^data\/screenshots\/.+\.png$/)
+  assert.match(capture.path, /^data[\\/]screenshots[\\/].+\.png$/)
   assert.match(capture.path, /-R58M12ABCDE\.png$/)
   assert.deepEqual((await readFile(capture.absolutePath)).subarray(0, 8), PNG_MAGIC)
 })
@@ -569,6 +641,9 @@ test('a capture with no PNG at all is refused instead of written', async () => {
   )
 })
 
+// Skipped on Windows because the contract is POSIX signal semantics: the fake
+// wedges in a `trap "" TERM` loop, and Windows has no signal handler to trap —
+// `kill()` there is `TerminateProcess`, so there is no escalation to observe.
 test('a capture that ignores SIGTERM still settles at its deadline', { skip: process.platform === 'win32', timeout: 20_000 }, async () => {
   const { rt } = await toolchain({
     adb: (p) => adbBody({ argvFile: p.argvFile, devices: [USB_DEVICE], screencapHangs: true }),
@@ -610,13 +685,13 @@ test('an escaping screenshot path is refused before the capture runs', async () 
 // ---------------------------------------------------------------------------
 
 test('start_emulator never reuses an existing target by serial', async () => {
-  const { rt, paths } = await toolchain({ adb: 'exit 0', emulator: 'exit 0' })
+  const { rt, paths } = await toolchain({ adb: [{ exit: 0 }], emulator: [{ exit: 0 }] })
   await assert.rejects(() => startEmulator(rt, { serial: 'emulator-5554' }), /always starts a new emulator/)
   assert.deepEqual(await argvs(paths.argvFile), [], 'the refusal happens before any tool is spawned')
 })
 
 test('stop_emulator kills through the adb console and reports an unreachable one', async () => {
-  const { rt, paths } = await toolchain({ adb: (p) => `${record(p.argvFile)}\nexit 0` })
+  const { rt, paths } = await toolchain({ adb: (p) => [{ record: p.argvFile }, { exit: 0 }] })
   assert.deepEqual(await stopEmulator(rt, { serial: 'emulator-5556' }), { stopped: true, serial: 'emulator-5556' })
   assert.deepEqual(await argvWith(paths.argvFile, 'emu'), ['-s', 'emulator-5556', 'emu', 'kill'])
   await assert.rejects(() => stopEmulator(rt, { serial: 'bad;serial' }), /Invalid Android device serial/)
@@ -627,7 +702,7 @@ test('stop_emulator surfaces a vanished emulator instead of claiming success', a
   // reach the console port, and the message said so rather than reporting a
   // stop that never happened.
   const { rt } = await toolchain({
-    adb: 'echo "error: could not connect to TCP port 5556: Connection refused" >&2\nexit 1',
+    adb: [{ err: 'error: could not connect to TCP port 5556: Connection refused' }, { exit: 1 }],
   })
   await assert.rejects(
     () => stopEmulator(rt, { serial: 'emulator-5556' }),
@@ -638,7 +713,7 @@ test('stop_emulator surfaces a vanished emulator instead of claiming success', a
 test('an AVD that is already running is refused by name, not restarted', async () => {
   const { rt, paths } = await toolchain({
     adb: (p) => adbBody({ argvFile: p.argvFile, devices: [EMULATOR_DEVICE], avdName: 'Pixel_10' }),
-    emulator: (p) => `if [ "$1" = "-list-avds" ]; then echo Pixel_10; exit 0; fi\n${record(p.spawnArgv)}\nexit 1`,
+    emulator: EMULATOR_FAILS('Pixel_10'),
   })
   await assert.rejects(() => startEmulator(rt, { avd: 'Pixel_10' }), /is already running as emulator-5554/)
   assert.deepEqual(await argvs(paths.spawnArgv), [], 'the running AVD must not be started a second time')
@@ -652,8 +727,7 @@ test('an unknown AVD name is refused instead of falling back to the first AVD', 
   // would never learn which device it is actually talking to.
   const { rt, paths } = await toolchain({
     adb: ADB_EMPTY,
-    emulator: (p) =>
-      `if [ "$1" = "-list-avds" ]; then echo Alpha_AVD; echo Beta_AVD; exit 0; fi\n${record(p.spawnArgv)}\necho "INFO  | starting"\nexit 1`,
+    emulator: EMULATOR_WARNS('Alpha_AVD', 'Beta_AVD'),
   })
   await assert.rejects(
     () => startEmulator(rt, { avd: 'Nonexistent_AVD' }),
@@ -667,8 +741,7 @@ test('the configured default AVD may still fall back to the first one', async ()
   // by name, so any AVD is an acceptable answer.
   const { rt, paths } = await toolchain({
     adb: ADB_EMPTY,
-    emulator: (p) =>
-      `if [ "$1" = "-list-avds" ]; then echo Alpha_AVD; echo Beta_AVD; exit 0; fi\n${record(p.spawnArgv)}\necho "INFO  | starting"\nexit 1`,
+    emulator: EMULATOR_WARNS('Alpha_AVD', 'Beta_AVD'),
   })
   rt.settings.defaultAvd = 'Not_Installed_Anymore'
   await assert.rejects(() => startEmulator(rt, {}), /exited during startup/)
@@ -686,7 +759,7 @@ test('a stale configured serial fails instead of starting another emulator', asy
         argvFile: p.argvFile,
         devices: ['R58M12ABCDE            device usb:1 transport_id:2'],
       }),
-    emulator: (p) => `if [ "$1" = "-list-avds" ]; then echo Alpha_AVD; exit 0; fi\n${record(p.spawnArgv)}\nexit 1`,
+    emulator: EMULATOR_FAILS('Alpha_AVD'),
   })
   rt.settings.defaultSerial = 'emulator-9999'
   await assert.rejects(() => ensureDevice(rt, {}), /Android device not found: emulator-9999/)
@@ -699,7 +772,7 @@ test('a partial AVD name does not silently select another AVD', async () => {
   // caller nothing about the substitution.
   const { rt, paths } = await toolchain({
     adb: ADB_EMPTY,
-    emulator: (p) => `if [ "$1" = "-list-avds" ]; then echo Pixel_10; exit 0; fi\n${record(p.spawnArgv)}\nexit 1`,
+    emulator: EMULATOR_FAILS('Pixel_10'),
   })
   await assert.rejects(() => startEmulator(rt, { avd: 'Pixel' }), /Android AVD "Pixel" not found/)
   assert.deepEqual(await argvs(paths.spawnArgv), [], 'no emulator may be spawned for a partial name')
@@ -710,8 +783,7 @@ test('an exact AVD name wins over a longer name that contains it', async () => {
   // called "Pixel" exists, which is the same wrong-device failure by another route.
   const { rt, paths } = await toolchain({
     adb: ADB_EMPTY,
-    emulator: (p) =>
-      `if [ "$1" = "-list-avds" ]; then echo Pixel_10; echo Pixel; exit 0; fi\n${record(p.spawnArgv)}\necho "INFO  | starting"\nexit 1`,
+    emulator: EMULATOR_WARNS('Pixel_10', 'Pixel'),
   })
   await assert.rejects(() => startEmulator(rt, { avd: 'Pixel' }), /exited during startup/)
   const [argv] = await argvs(paths.spawnArgv)
@@ -751,8 +823,13 @@ test('a new emulator stuck in unauthorized burns the boot timeout, then names th
         flag: p.spawnFlag,
         appearing: ['emulator-5558          unauthorized'],
       }),
-    emulator: (p) =>
-      `if [ "$1" = "-list-avds" ]; then echo Alpha_AVD; exit 0; fi\n: > ${JSON.stringify(p.spawnFlag)}\necho $$ > ${JSON.stringify(p.pidFile)}\necho "INFO  | starting"\nexec sleep 60`,
+    emulator: (p) => [
+      { ifSub: '-list-avds', then: [{ out: 'Alpha_AVD' }, { exit: 0 }] },
+      { write: [p.spawnFlag, ''] },
+      { pidTo: p.pidFile },
+      { out: 'INFO  | starting' },
+      { sleep: 60 },
+    ],
     config: { bootTimeoutSeconds: { get: () => 1 } },
   })
   // Pre-create the marker the fake adb reads: the start polls immediately, so
@@ -805,8 +882,12 @@ test('create_avd answers avdmanager down the "no" path and surfaces its refusal'
   // Valid system image paths are: …". The contract that matters is that the
   // plugin never lets that prompt turn into a multi-gigabyte download.
   const { rt, paths } = await toolchain({
-    avdmanager: (p) =>
-      `cat > ${JSON.stringify(p.stdinFile)}\necho "Error: Package path is not valid. Valid system image paths are:" >&2\necho "system-images;android-37.0;google_apis_playstore_ps16k;arm64-v8a" >&2\nexit 1`,
+    avdmanager: (p) => [
+      { stdinTo: p.stdinFile },
+      { err: 'Error: Package path is not valid. Valid system image paths are:' },
+      { err: 'system-images;android-37.0;google_apis_playstore_ps16k;arm64-v8a' },
+      { exit: 1 },
+    ],
   })
   await assert.rejects(
     () => createAvd(rt, { name: 'probe_avd', packageId: 'system-images;android-35;default;arm64-v8a' }),
@@ -816,7 +897,7 @@ test('create_avd answers avdmanager down the "no" path and surfaces its refusal'
 })
 
 test('create_avd refuses an invalid AVD name before spawning avdmanager', async () => {
-  const { rt, paths } = await toolchain({ avdmanager: (p) => record(p.argvFile) })
+  const { rt, paths } = await toolchain({ avdmanager: (p) => [{ record: p.argvFile }] })
   await assert.rejects(() => createAvd(rt, { name: 'bad;name' }), /Invalid Android AVD name/)
   assert.deepEqual(await argvs(paths.argvFile), [])
 })

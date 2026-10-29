@@ -13,13 +13,40 @@ import { brief, callTimeoutMs, run, runBytes } from '../lib/util/run.js'
 
 const POSIX = process.platform !== 'win32'
 
-test('a child that exits without reading stdin cannot crash the caller', { skip: !POSIX }, async () => {
+/**
+ * The argv that runs `command` in this platform's shell.
+ *
+ * The two portable cases below only need a process that prints bytes and one
+ * that exits without reading stdin; neither depends on POSIX signals, so on
+ * Windows the same behaviour is expressed in PowerShell.
+ *
+ * @param {string} command - the script to run.
+ * @returns {string[]} the argv.
+ */
+function shell(command) {
+  return process.platform === 'win32'
+    ? ['pwsh', '-NoProfile', '-NonInteractive', '-Command', command]
+    : ['/bin/sh', '-c', command]
+}
+
+/** A script that writes the eight PNG signature bytes on stdout. */
+const PRINT_PNG = POSIX
+  ? "printf '\\211PNG\\r\\n\\032\\n'"
+  : '[Console]::OpenStandardOutput().Write([byte[]]@(137,80,78,71,13,10,26,10),0,8)'
+
+test('a child that exits without reading stdin cannot crash the caller', async () => {
   // 2 MiB is larger than a pipe buffer; the payload is still queued when the
   // child exits, and the resulting EPIPE is emitted on the stdin stream.
-  const out = await run(['/bin/sh', '-c', 'exit 0'], { input: 'x'.repeat(2 * 1024 * 1024) })
+  const out = await run(shell('exit 0'), { input: 'x'.repeat(2 * 1024 * 1024) })
   assert.equal(typeof out.code, 'number')
   assert.equal(out.timed, false)
 })
+
+// The three below are skipped on Windows because the behaviour they pin is
+// POSIX signal semantics: `kill('SIGTERM')` is a *signal* there, while on
+// Windows it is `TerminateProcess` on the direct child, with no handler to
+// trap and no escalation step to observe. The escalation code still runs on
+// Windows — there is simply no second stage to prove.
 
 test('a child that ignores SIGTERM is terminated after the grace period', { skip: !POSIX, timeout: 10_000 }, async () => {
   const started = Date.now()
@@ -37,10 +64,10 @@ test('a grandchild holding stdout does not keep the call pending', { skip: !POSI
   assert.ok(elapsed < 2_000, `close waits for the inherited pipe; run() must bound that wait: ${elapsed}ms`)
 })
 
-test('runBytes keeps the raw stdout bytes that run() would decode', { skip: !POSIX }, async () => {
+test('runBytes keeps the raw stdout bytes that run() would decode', async () => {
   // `adb exec-out screencap -p` is the reason this exists: decoding a PNG as
   // UTF-8 does not survive the round trip.
-  const out = await runBytes(['/bin/sh', '-c', "printf '\\211PNG\\r\\n\\032\\n'"])
+  const out = await runBytes(shell(PRINT_PNG))
   assert.equal(out.code, 0)
   assert.deepEqual(out.bytes, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
   // `stdout` is a lossy UTF-8 decode and cannot be used to recover the payload:

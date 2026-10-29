@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import path from 'node:path'
 import { test } from 'node:test'
 import { apply, Config, inject, name, renderCommandReport, splitFrontmatter } from '../lib/index.js'
 import { FIELD_KEYS } from '../lib/settings.js'
@@ -204,7 +205,12 @@ test('apply registers the embedded skill with the package directory as its resou
   assert.match(skill.description, /Android/)
   assert.match(skill.content, /android_preflight/)
   assert.equal(skill.resourceBase.kind, 'directory')
-  assert.match(skill.resourceBase.path, /skills\/android-dev$/)
+  // The separator is the platform's: the resource base is a real directory
+  // path, not a URL, so a Windows host reports backslashes.
+  assert.ok(
+    skill.resourceBase.path.endsWith(path.join('skills', 'android-dev')),
+    `expected the package's skill directory, got ${skill.resourceBase.path}`,
+  )
 })
 
 test('apply registers the android-dev command', () => {

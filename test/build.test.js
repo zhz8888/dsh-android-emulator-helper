@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { applicationIdFor, discover, findApks } from '../lib/providers/project.js'
 import { buildApp } from '../lib/providers/build.js'
 import { createRuntime } from '../lib/runtime.js'
+import { writeFakeTool } from './helpers/fake-tool.mjs'
 
 /**
  * Multi-module target resolution and build-result durability.
@@ -16,8 +17,6 @@ import { createRuntime } from '../lib/runtime.js'
  * these tests build a real (fake-Gradle) project on disk instead of asserting
  * the helpers in isolation.
  */
-
-const POSIX = process.platform !== 'win32'
 
 /**
  * Write one module: its build file and, for an app module, an APK product.
@@ -45,21 +44,38 @@ function runtimeAt(project, dataDir) {
     config: {
       dataDir: { get: () => dataDir },
       buildTimeoutSeconds: { get: () => 30 },
+      // The plugin discovers the Android SDK on its own, including by scanning
+      // the drive roots, so a machine that has one installed would otherwise
+      // resolve the real tools instead of the ones this test provides. A
+      // configured root is authoritative: pointing it at a directory that holds
+      // no tools keeps the real SDK out of the way.
+      sdkPath: { get: () => dataDir },
     },
     cwd: project,
-    env: { ...process.env, PATH: '/usr/bin:/bin' },
+    // The wrapper is found at the project root, but a child still needs the
+    // host's own PATH: on Windows `cmd.exe` — which every `.bat` launcher needs
+    // — lives in one of its directories.
+    env: { ...process.env },
     logger: { info() {}, warn() {}, error() {} },
   })
 }
 
-/** A fake Gradle launcher that records its argv and exits 0. */
+/**
+ * A fake Gradle wrapper that records its argv and exits 0.
+ *
+ * The plugin runs `gradlew.bat` on Windows and `gradlew` elsewhere, so the fake
+ * carries the name and launcher each platform expects.
+ */
 async function fakeGradle(project) {
-  const file = path.join(project, 'gradlew')
-  await writeFile(file, '#!/bin/sh\nprintf "%s\\n" "$@" > "$(dirname "$0")/gradle-argv.txt"\nexit 0\n', 'utf8')
-  await chmod(file, 0o755)
+  await writeFakeTool(
+    project,
+    'gradlew',
+    [{ recordLines: path.join(project, 'gradle-argv.txt') }, { exit: 0 }],
+    { launcher: 'bat' },
+  )
 }
 
-test('the application module is identified, not assumed to be the first include', { skip: !POSIX }, async () => {
+test('the application module is identified, not assumed to be the first include', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'aemh-modules-'))
   await writeFile(path.join(root, 'settings.gradle.kts'), 'include(":core")\ninclude(":app")\ninclude(":feature:login")\n', 'utf8')
   await moduleDir(root, 'core', 'android { namespace = "com.example.core" }\n')
@@ -75,7 +91,7 @@ test('the application module is identified, not assumed to be the first include'
   assert.ok((await findApks(root, [':feature:login'])).some((file) => file.endsWith('login-debug.apk')))
 })
 
-test('buildApp defaults to the application module and its application id', { skip: !POSIX }, async () => {
+test('buildApp defaults to the application module and its application id', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'aemh-build-'))
   await writeFile(path.join(root, 'settings.gradle.kts'), 'include(":core")\ninclude(":app")\n', 'utf8')
   await moduleDir(root, 'core', 'android { namespace = "com.example.core" }\n')
@@ -89,7 +105,7 @@ test('buildApp defaults to the application module and its application id', { ski
   assert.ok(report.apkPath?.endsWith('app-debug.apk'))
 })
 
-test('buildApp refuses a non-positive timeoutMs instead of killing Gradle at once', { skip: !POSIX }, async () => {
+test('buildApp refuses a non-positive timeoutMs instead of killing Gradle at once', async () => {
   // The device tools reject a non-positive override, but the build path used to
   // pass it straight to setTimeout: `timeoutMs: 0` killed Gradle in milliseconds
   // and reported `timedOut: true` with an empty output and no diagnostics.
@@ -103,7 +119,7 @@ test('buildApp refuses a non-positive timeoutMs instead of killing Gradle at onc
   await assert.rejects(() => buildApp(rt, { timeoutMs: -5 }), /Invalid timeoutMs: -5/)
 })
 
-test('a failed build-log write does not replace a successful build result', { skip: !POSIX }, async () => {
+test('a failed build-log write does not replace a successful build result', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'aemh-log-'))
   await writeFile(path.join(root, 'settings.gradle.kts'), 'include(":app")\n', 'utf8')
   await moduleDir(root, 'app', 'android { defaultConfig { applicationId = "com.example.app" } }\n', true)
@@ -114,9 +130,15 @@ test('a failed build-log write does not replace a successful build result', { sk
   await writeFile(blocked, 'x', 'utf8')
   const warnings = []
   const rt = createRuntime({
-    config: { dataDir: { get: () => blocked }, buildTimeoutSeconds: { get: () => 30 } },
+    config: {
+      dataDir: { get: () => blocked },
+      buildTimeoutSeconds: { get: () => 30 },
+      // Keep the plugin's own SDK discovery out of the way, exactly as
+      // `runtimeAt` does: the wrapper this test runs is the fake at the root.
+      sdkPath: { get: () => root },
+    },
     cwd: root,
-    env: { ...process.env, PATH: '/usr/bin:/bin' },
+    env: { ...process.env },
     logger: { info() {}, warn: (message) => warnings.push(message), error() {} },
   })
 

@@ -116,25 +116,32 @@ test('the screenshot and log directories resolve against the session workspace',
   assert.equal(await rt.buildLogs(), path.join(workspace, 'out', 'logs'))
 })
 
-test('a leading ~ in dataDir is expanded to the home directory', () => {
+test('a leading ~ in dataDir is expanded to the home directory', async () => {
   // The settings page's own placeholder for this field is
   // `~/.dsh/android-emulator-helper`, so a user who types the suggestion used
   // to get a directory literally named `~` created inside their project.
+  //
+  // The home is a real directory under the temp tree rather than a spelled-out
+  // `/home/tester`: a rooted path without a drive letter takes the current
+  // directory's drive on Windows, so only a real absolute path resolves to the
+  // same place on both platforms.
+  const home = await mkdtemp(path.join(os.tmpdir(), 'dsh-home-'))
   const rt = createRuntime({
     config: liveConfig({ dataDir: '~/.dsh/android-emulator-helper' }),
     exec: execWithCwd(WORKSPACE),
-    env: { HOME: '/home/tester' },
+    env: { HOME: home },
   })
-  assert.equal(rt.dataRoot, path.join('/home/tester', '.dsh', DATA_DIR_NAME))
+  assert.equal(rt.dataRoot, path.join(home, '.dsh', DATA_DIR_NAME))
 })
 
-test('a bare ~ in dataDir expands to the home directory', () => {
+test('a bare ~ in dataDir expands to the home directory', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'dsh-home-'))
   const rt = createRuntime({
     config: liveConfig({ dataDir: '~' }),
     exec: execWithCwd(WORKSPACE),
-    env: { HOME: '/home/tester' },
+    env: { HOME: home },
   })
-  assert.equal(rt.dataRoot, '/home/tester')
+  assert.equal(rt.dataRoot, home)
 })
 
 test('a leading ~ in screenshotDir is expanded to the home directory', async () => {
@@ -156,7 +163,7 @@ test('a ~ that is not the first segment is left alone', () => {
     exec: execWithCwd(WORKSPACE),
     env: { HOME: '/home/tester' },
   })
-  assert.equal(rt.dataRoot, path.join(WORKSPACE, 'out', '~backup'))
+  assert.equal(rt.dataRoot, path.resolve(WORKSPACE, 'out', '~backup'))
 })
 
 // ---------------------------------------------------------------------------

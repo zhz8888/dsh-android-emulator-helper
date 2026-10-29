@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createRuntime } from '../lib/runtime.js'
 import { blockerHint, startedEmulatorCandidates, startEmulator } from '../lib/providers/avd.js'
 import { pickDevice } from '../lib/providers/device.js'
+import { writeFakeTool } from './helpers/fake-tool.mjs'
 import {
   KEY_EVENTS,
   describe,
@@ -71,126 +72,152 @@ const NODE_RECORD_KEYS = [
 /**
  * Install an executable fake `adb` that answers the calls the UI providers make.
  *
- * The script records every invocation, one bracketed argv element per line, so
- * a test can assert the precise device-shell command instead of inferring it.
- * `screen.xml` is what a *successful* `uiautomator dump` writes; `window.xml`
- * is the device-side file `cat` reads. Whatever dump path the provider passes is
+ * The script records every invocation, one `ARGV [a] [b] …` line per call, so a
+ * test can assert the precise device-shell command instead of inferring it.
+ * `screen.xml` is what a *successful* `uiautomator dump` writes; `window.xml` is
+ * the device-side file `cat` reads. Whatever dump path the provider passes is
  * mapped onto those two files, which is the only part of the dump not under test.
  *
- * @param {{screen?: string}} [options] - the XML the next dump should publish.
- * @returns {Promise<{rt: object, argv: () => Promise<string[]>, setScreen: (xml: string) => Promise<void>, failDump: (fails: boolean) => Promise<void>, errorDump: (fails: boolean) => Promise<void>}>} the harness.
+ * The fake is rendered for the host by `helpers/fake-tool.mjs`: a shell script
+ * on POSIX, a PowerShell script behind a `.cmd` launcher on Windows.
+ *
+ * @param {{screen?: string, devices?: string, devicesAfterStart?: string, emulatorSteps?: object[]}} [options]
+ *   - the XML the next dump should publish, the device transcripts, and the
+ *   steps of a fake `emulator` to install beside `adb`.
+ * @returns {Promise<{rt: object, stateDir: string, argv: () => Promise<string[]>, setScreen: (xml: string) => Promise<void>, failDump: (fails: boolean) => Promise<void>, errorDump: (fails: boolean) => Promise<void>}>} the harness.
  */
 async function fakeAdb(options = {}) {
   const binDir = await mkdtemp(path.join(tmpdir(), 'aemh-ui-bin-'))
   const stateDir = await mkdtemp(path.join(tmpdir(), 'aemh-ui-state-'))
   const dataDir = await mkdtemp(path.join(tmpdir(), 'aemh-ui-data-'))
-  await writeFile(path.join(stateDir, 'screen.xml'), options.screen ?? '', 'utf8')
+  const state = (name) => path.join(stateDir, name)
+  await writeFile(state('screen.xml'), options.screen ?? '', 'utf8')
   // `adb devices -l` is served from files so a test can present any device
   // state, and can change it when a start actually happens.
-  await writeFile(path.join(stateDir, 'devices.txt'), options.devices ?? READY_DEVICES, 'utf8')
+  await writeFile(state('devices.txt'), options.devices ?? READY_DEVICES, 'utf8')
   if (options.devicesAfterStart !== undefined) {
-    await writeFile(path.join(stateDir, 'devices-after-start.txt'), options.devicesAfterStart, 'utf8')
-  }
-  if (options.emulatorScript !== undefined) {
-    const emulatorFile = path.join(binDir, 'emulator')
-    // The script is written into `binDir`, so it cannot know `stateDir` on its
-    // own; `__STATE__` lets it write the marker the fake adb reads.
-    await writeFile(emulatorFile, options.emulatorScript.replaceAll('__STATE__', stateDir), 'utf8')
-    await chmod(emulatorFile, 0o755)
+    await writeFile(state('devices-after-start.txt'), options.devicesAfterStart, 'utf8')
   }
 
-  const script = `#!/bin/sh
-STATE=${stateDir}
-{
-  printf 'ARGV'
-  for a in "$@"; do printf ' [%s]' "$a"; done
-  printf '\\n'
-} >> "$STATE/argv.log"
+  await writeFakeTool(binDir, 'adb', [
+    { record: state('argv.log') },
+    {
+      ifSub: 'devices',
+      then: [
+        // The emulator's `started` marker decides which transcript is live.
+        {
+          ifFile: state('devices-after-start.txt'),
+          then: [
+            {
+              ifFile: state('started'),
+              then: [{ cat: state('devices-after-start.txt') }, { exit: 0 }],
+            },
+          ],
+        },
+        { cat: state('devices.txt') },
+        { exit: 0 },
+      ],
+    },
+    {
+      ifSub: 'shell',
+      then: [
+        {
+          ifRest: { pattern: 'getprop sys.boot_completed' },
+          then: [{ out: '1' }, { exit: 0 }],
+        },
+        {
+          // A real dump prints the success line and exits 0 even when it wrote
+          // nothing; that is what makes a failed dump look like an empty screen.
+          ifRest: { pattern: 'uiautomator dump*', capture: 'DUMP_PATH', strip: 'uiautomator dump ' },
+          then: [
+            {
+              ifFile: state('dump-fails'),
+              then: [{ out: 'UI hierchary dumped to: ${DUMP_PATH}' }, { exit: 0 }],
+            },
+            // The other real failure mode: the tool prints its diagnosis to
+            // stdout and STILL exits 0, so only the output tells the caller.
+            {
+              ifFile: state('dump-errors'),
+              then: [{ out: 'ERROR: could not get idle state.' }, { exit: 0 }],
+            },
+            { copy: [state('screen.xml'), state('window.xml')] },
+            // Record which path this call published, so a read of any OTHER
+            // path fails exactly as it would on a device that never wrote it.
+            { write: [state('last-dump.txt'), '${DUMP_PATH}'] },
+            { out: 'UI hierchary dumped to: ${DUMP_PATH}' },
+            { exit: 0 },
+          ],
+        },
+        {
+          // A faithful cat: the file exists only when the dump that named this
+          // very path succeeded.
+          ifRest: { pattern: 'cat /sdcard/window.xml', capture: 'CAT_PATH', strip: 'cat ' },
+          then: [
+            {
+              ifContentEquals: [state('last-dump.txt'), '${CAT_PATH}'],
+              then: [{ cat: state('window.xml') }, { exit: 0 }],
+            },
+            { err: 'cat: ${CAT_PATH}: No such file or directory' },
+            { exit: 1 },
+          ],
+        },
+        {
+          ifRest: { pattern: 'cat /sdcard/.dsh-ui-*', capture: 'CAT_PATH', strip: 'cat ' },
+          then: [
+            {
+              ifContentEquals: [state('last-dump.txt'), '${CAT_PATH}'],
+              then: [{ cat: state('window.xml') }, { exit: 0 }],
+            },
+            { err: 'cat: ${CAT_PATH}: No such file or directory' },
+            { exit: 1 },
+          ],
+        },
+        {
+          // The provider removes its own dump file; a later read of that path
+          // must therefore fail. The harness keeps window.xml as the last
+          // content.
+          ifRest: { pattern: 'rm -f /sdcard/.dsh-ui-*' },
+          then: [{ write: [state('last-dump.txt'), ''] }, { exit: 0 }],
+        },
+        { ifRest: { pattern: 'input*' }, then: [{ append: [state('input.log'), '${REST}\n'] }, { exit: 0 }] },
+        { exit: 0 },
+      ],
+    },
+    { exit: 0 },
+  ])
 
-if [ "$1" = "-s" ]; then shift 2; fi
-
-case "$1" in
-  devices)
-    if [ -f "$STATE/started" ] && [ -f "$STATE/devices-after-start.txt" ]; then
-      cat "$STATE/devices-after-start.txt"
-    else
-      cat "$STATE/devices.txt"
-    fi
-    exit 0
-    ;;
-  shell)
-    shift
-    cmd="$*"
-    case "$cmd" in
-      "getprop sys.boot_completed") echo 1; exit 0 ;;
-      uiautomator\\ dump*)
-        # cmd has already dropped the serial and the shell subcommand, so the
-        # dump path is whatever follows the subcommand.
-        dumpPath=\${cmd#uiautomator dump }
-        # A real dump prints the success line and exits 0 even when it wrote
-        # nothing; that is what makes a failed dump look like an empty screen
-        # (see the stale-dump test below).
-        if [ -f "$STATE/dump-fails" ]; then
-          echo "UI hierchary dumped to: $dumpPath"
-          exit 0
-        fi
-        # The other real failure mode: the tool prints its diagnosis to stdout
-        # and STILL exits 0, so only the output tells the caller it failed.
-        if [ -f "$STATE/dump-errors" ]; then
-          echo "ERROR: could not get idle state."
-          exit 0
-        fi
-        cp "$STATE/screen.xml" "$STATE/window.xml"
-        # Record which path this call published, so a read of any OTHER path
-        # fails exactly as it would on a device that never wrote that file.
-        printf '%s' "$dumpPath" > "$STATE/last-dump.txt"
-        echo "UI hierchary dumped to: $dumpPath"
-        exit 0
-        ;;
-      "cat /sdcard/window.xml"|"cat /sdcard/.dsh-ui-"*)
-        # A faithful cat: the file exists only when the dump that named this very
-        # path succeeded.
-        path=$(echo "$cmd" | cut -d' ' -f2)
-        if [ -f "$STATE/last-dump.txt" ] && [ "$(cat "$STATE/last-dump.txt")" = "$path" ]; then
-          cat "$STATE/window.xml"
-          exit 0
-        fi
-        echo "cat: $path: No such file or directory" >&2
-        exit 1
-        ;;
-      "rm -f /sdcard/.dsh-ui-"*)
-        # The provider removes its own dump file; a later read of that path must
-        # therefore fail. The harness keeps window.xml as the last content.
-        : > "$STATE/last-dump.txt"
-        exit 0
-        ;;
-      input*)
-        echo "$cmd" >> "$STATE/input.log"
-        exit 0
-        ;;
-    esac
-    exit 0
-    ;;
-esac
-exit 0
-`
-  const file = path.join(binDir, 'adb')
-  await writeFile(file, script, 'utf8')
-  await chmod(file, 0o755)
+  if (options.emulatorSteps !== undefined) {
+    // The steps need the state directory this harness just made, which is why
+    // the option may be a factory rather than a literal list.
+    const steps = typeof options.emulatorSteps === 'function' ? options.emulatorSteps(stateDir) : options.emulatorSteps
+    await writeFakeTool(binDir, 'emulator', steps)
+  }
 
   const rt = createRuntime({
     config: {
       dataDir: { get: () => dataDir },
       bootTimeoutSeconds: { get: () => 5 },
+      // The plugin discovers the Android SDK on its own — including by scanning
+      // the drive roots — so a host that has one installed would otherwise run
+      // the real `adb` instead of this fake. A configured root is
+      // authoritative: point it at a directory that holds no tools, and the
+      // plugin falls back to `PATH`, which is where the fake lives.
+      sdkPath: { get: () => dataDir },
     },
     exec: undefined,
     logger: { info() {}, warn() {}, error() {} },
-    env: { ...process.env, PATH: `${binDir}:/usr/bin:/bin` },
+    env: { ...process.env, PATH: [binDir, process.env.PATH].filter(Boolean).join(path.delimiter) },
   })
   return {
     rt,
     stateDir,
-    argv: async () => (await readFile(path.join(stateDir, 'argv.log'), 'utf8').catch(() => '')).split('\n').filter(Boolean),
+    argv: async () => {
+      const text = await readFile(path.join(stateDir, 'argv.log'), 'utf8').catch(() => '')
+      return text
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map((line) => `ARGV ${line.split('|').slice(0, -1).map((argument) => `[${argument}]`).join(' ')}`)
+    },
     setScreen: async (xml) => {
       await writeFile(path.join(stateDir, 'screen.xml'), xml, 'utf8')
     },
@@ -341,11 +368,13 @@ test('the UI backend reports the adb it will use', async () => {
   const report = await status(rt)
   assert.equal(report.available, true)
   assert.equal(report.backend, 'adb-uiautomator')
-  assert.match(report.adb, /adb$/)
+  // The reported path is the fake on this host: `adb` on POSIX, and the
+  // launcher the plugin can actually start on Windows.
+  assert.match(report.adb, /[\\/]adb(\.cmd|\.bat)?$/)
   assert.deepEqual(report.implementedBackends, ['uiautomator', 'adb-input'])
 })
 
-test('describe dumps to a path of its own, reads it back, and removes it', { skip: process.platform === 'win32' }, async () => {
+test('describe dumps to a path of its own, reads it back, and removes it', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   const tree = await describe(rt, { serial: 'emulator-5554' })
   assert.equal(tree.device.serial, 'emulator-5554')
@@ -359,7 +388,7 @@ test('describe dumps to a path of its own, reads it back, and removes it', { ski
   assert.equal(lines[4], `ARGV [-s] [emulator-5554] [shell] [rm -f ${dumpPath}]`, 'the dump file must not accumulate on the device')
 })
 
-test('describe reports a failed dump instead of serving the previous screen', { skip: process.platform === 'win32' }, async () => {
+test('describe reports a failed dump instead of serving the previous screen', async () => {
   const first = parseUiAutomator(node({ text: 'ScreenOne', bounds: '[0,0][10,10]' }))[0]
   const second = parseUiAutomator(node({ text: 'ScreenTwo', bounds: '[0,0][10,10]' }))[0]
   assert.equal(first.text, 'ScreenOne')
@@ -392,7 +421,7 @@ test('describe reports a failed dump instead of serving the previous screen', { 
   assert.equal(fresh.elements[0].text, 'ScreenTwo')
 })
 
-test('describe names a dump that reported an error on stdout while exiting 0', { skip: process.platform === 'win32' }, async () => {
+test('describe names a dump that reported an error on stdout while exiting 0', async () => {
   // `uiautomator dump` prints "ERROR: could not get idle state." to stdout and
   // exits 0 when the screen is not idle. Checking only the exit code let the
   // provider `cat` a file that was never written and surface the raw
@@ -406,7 +435,7 @@ test('describe names a dump that reported an error on stdout while exiting 0', {
   })
 })
 
-test('resolve searches text, content description, resource id and class', { skip: process.platform === 'win32' }, async () => {
+test('resolve searches text, content description, resource id and class', async () => {
   const { rt } = await fakeAdb({ screen: SCREEN })
   const cases = [
     ['Alpha', 0, 50, 50],
@@ -428,7 +457,7 @@ test('resolve searches text, content description, resource id and class', { skip
   }
 })
 
-test('resolve is case-insensitive and returns the first match in tree order', { skip: process.platform === 'win32' }, async () => {
+test('resolve is case-insensitive and returns the first match in tree order', async () => {
   const { rt } = await fakeAdb({ screen: SCREEN })
   const upper = await resolve(rt, { query: 'ALPHA', serial: 'emulator-5554' })
   assert.equal(upper.element.index, 0)
@@ -437,7 +466,7 @@ test('resolve is case-insensitive and returns the first match in tree order', { 
   assert.equal(upper.element.clickable, false)
 })
 
-test('resolve skips nodes without bounds', { skip: process.platform === 'win32' }, async () => {
+test('resolve skips nodes without bounds', async () => {
   const { rt } = await fakeAdb({ screen: SCREEN })
   const hit = await resolve(rt, { query: 'NoBounds', serial: 'emulator-5554' })
   assert.equal(hit.element.index, 6)
@@ -447,7 +476,7 @@ test('resolve skips nodes without bounds', { skip: process.platform === 'win32' 
   await assert.rejects(() => resolve(only.rt, { query: 'NoBounds', serial: 'emulator-5554' }), /No visible Android UI element matched/)
 })
 
-test('resolve reports a clean error for no match and for an empty query', { skip: process.platform === 'win32' }, async () => {
+test('resolve reports a clean error for no match and for an empty query', async () => {
   const { rt } = await fakeAdb({ screen: SCREEN })
   await assert.rejects(
     () => resolve(rt, { query: 'zzz-absent', serial: 'emulator-5554' }),
@@ -460,7 +489,7 @@ test('resolve reports a clean error for no match and for an empty query', { skip
   await assert.rejects(() => resolve(rt, { query: '   ', serial: 'emulator-5554' }), /must not be empty/)
 })
 
-test('tap rounds fractional coordinates for adb and reports what was sent', { skip: process.platform === 'win32' }, async () => {
+test('tap rounds fractional coordinates for adb and reports what was sent', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   const report = await tap(rt, { x: 1.5, y: 2.5, serial: 'emulator-5554' })
   const sent = (await argv()).find((line) => line.includes('[input tap'))
@@ -470,14 +499,14 @@ test('tap rounds fractional coordinates for adb and reports what was sent', { sk
   assert.deepEqual(report, { tapped: true, serial: 'emulator-5554', x: 2, y: 3 })
 })
 
-test('tap forwards out-of-range coordinates without validation', { skip: process.platform === 'win32' }, async () => {
+test('tap forwards out-of-range coordinates without validation', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   await tap(rt, { x: -5, y: 9000, serial: 'emulator-5554' })
   const sent = (await argv()).find((line) => line.includes('[input tap'))
   assert.equal(sent, 'ARGV [-s] [emulator-5554] [shell] [input tap -5 9000]')
 })
 
-test('swipe passes the rounded duration to adb and reports what ran', { skip: process.platform === 'win32' }, async () => {
+test('swipe passes the rounded duration to adb and reports what ran', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   const report = await swipe(rt, { x1: 540, y1: 1800, x2: 540, y2: 600, durationMs: 1500, serial: 'emulator-5554' })
   assert.equal(
@@ -492,7 +521,7 @@ test('swipe passes the rounded duration to adb and reports what ran', { skip: pr
   assert.equal(report.durationMs, 1500)
 })
 
-test('swipe defaults to 300ms and rounds fractional durations', { skip: process.platform === 'win32' }, async () => {
+test('swipe defaults to 300ms and rounds fractional durations', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   await swipe(rt, { x1: 0, y1: 0, x2: 10, y2: 10, serial: 'emulator-5554' })
   await swipe(rt, { x1: 0, y1: 0, x2: 10, y2: 10, durationMs: 1500.6, serial: 'emulator-5554' })
@@ -503,7 +532,7 @@ test('swipe defaults to 300ms and rounds fractional durations', { skip: process.
   ])
 })
 
-test('swipe accepts reversed and zero-distance gestures', { skip: process.platform === 'win32' }, async () => {
+test('swipe accepts reversed and zero-distance gestures', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   // A reversed or zero-distance swipe is not refused: it becomes a real input
   // event (a drag back, or a stationary long press).
@@ -516,7 +545,7 @@ test('swipe accepts reversed and zero-distance gestures', { skip: process.platfo
   ])
 })
 
-test('type text sends the escaped value to adb', { skip: process.platform === 'win32' }, async () => {
+test('type text sends the escaped value to adb', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   const report = await typeText(rt, { text: 'a b%c', serial: 'emulator-5554' })
   assert.equal(
@@ -527,7 +556,7 @@ test('type text sends the escaped value to adb', { skip: process.platform === 'w
   assert.deepEqual(report, { typed: true, serial: 'emulator-5554', length: 5 })
 })
 
-test('type text quotes shell metacharacters and single quotes', { skip: process.platform === 'win32' }, async () => {
+test('type text quotes shell metacharacters and single quotes', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   await typeText(rt, { text: 'a&b', serial: 'emulator-5554' })
   await typeText(rt, { text: "it's", serial: 'emulator-5554' })
@@ -539,7 +568,7 @@ test('type text quotes shell metacharacters and single quotes', { skip: process.
   ])
 })
 
-test('type text refuses over-long text before sending anything to the device', { skip: process.platform === 'win32' }, async () => {
+test('type text refuses over-long text before sending anything to the device', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   await assert.rejects(() => typeText(rt, { text: 'x'.repeat(1001), serial: 'emulator-5554' }), /too long/)
   // No `input text` is sent, so the device never receives a truncated
@@ -554,7 +583,7 @@ test('type text refuses over-long text before sending anything to the device', {
   assert.ok(sent.some((line) => line.includes('[devices] [-l]')), 'the device handshake already happened')
 })
 
-test('type text forwards non-ASCII text unchanged', { skip: process.platform === 'win32' }, async () => {
+test('type text forwards non-ASCII text unchanged', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   const report = await typeText(rt, { text: '中文', serial: 'emulator-5554' })
   assert.equal((await argv()).find((line) => line.includes('[input text')), "ARGV [-s] [emulator-5554] [shell] [input text '中文']")
@@ -564,7 +593,7 @@ test('type text forwards non-ASCII text unchanged', { skip: process.platform ===
   assert.equal(report.length, 2)
 })
 
-test('keyevent sends the mapped keycode and refuses anything else', { skip: process.platform === 'win32' }, async () => {
+test('keyevent sends the mapped keycode and refuses anything else', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   for (const [key, code] of Object.entries(KEY_EVENTS)) {
     const report = await keyevent(rt, { key, serial: 'emulator-5554' })
@@ -592,7 +621,7 @@ test('keyevent sends the mapped keycode and refuses anything else', { skip: proc
  * ---------------------------------------------------------------------------
  */
 
-test('an explicitly named device in a non-ready state fails loudly and names the state', { skip: process.platform === 'win32' }, async () => {
+test('an explicitly named device in a non-ready state fails loudly and names the state', async () => {
   for (const state of ['unauthorized', 'offline']) {
     const { rt } = await fakeAdb({
       devices: ['List of devices attached', `emulator-5556          ${state} transport_id:3`, ''].join('\n'),
@@ -608,7 +637,7 @@ test('an explicitly named device in a non-ready state fails loudly and names the
   }
 })
 
-test('an attached but unauthorized device is invisible to serial-less selection', { skip: process.platform === 'win32' }, async () => {
+test('an attached but unauthorized device is invisible to serial-less selection', async () => {
   const { rt } = await fakeAdb({
     devices: ['List of devices attached', 'emulator-5556          unauthorized transport_id:3', ''].join('\n'),
   })
@@ -624,7 +653,7 @@ test('an attached but unauthorized device is invisible to serial-less selection'
   })
 })
 
-test('a ready device still wins while an unauthorized one is attached', { skip: process.platform === 'win32' }, async () => {
+test('a ready device still wins while an unauthorized one is attached', async () => {
   const { rt } = await fakeAdb({
     devices: [
       'List of devices attached',
@@ -671,24 +700,21 @@ test('blockerHint explains an unauthorized device and stays silent when all are 
   assert.equal(blockerHint([]), '')
 })
 
-test('starting an emulator that stays unauthorized reports the state, not a bare timeout', { skip: process.platform === 'win32' }, async () => {
+test('starting an emulator that stays unauthorized reports the state, not a bare timeout', async () => {
   // The fake emulator starts and stays alive; adb reports the new serial as
   // unauthorized and never as `device`.
   const harness = await fakeAdb({
     devices: 'List of devices attached\n\n',
     devicesAfterStart: 'List of devices attached\nemulator-5556          unauthorized transport_id:3\n\n',
-    emulatorScript: [
-      '#!/bin/sh',
-      'if [ "$1" = "-list-avds" ]; then',
-      '  echo Fake_AVD',
-      '  exit 0',
-      'fi',
-      'touch "__STATE__/started"',
-      'echo $$ > "__STATE__/emulator.pid"',
-      'sleep 8',
-      'exit 0',
-      '',
-    ].join('\n'),
+    // A factory, because the steps have to name files in the state directory
+    // the harness creates for this call.
+    emulatorSteps: (state) => [
+      { ifSub: '-list-avds', then: [{ out: 'Fake_AVD' }, { exit: 0 }] },
+      { write: [path.join(state, 'started'), ''] },
+      { pidTo: path.join(state, 'emulator.pid') },
+      { sleep: 8 },
+      { exit: 0 },
+    ],
   })
   // The first devices poll races the fake emulator's `touch`; the test is about
   // the error text, so the marker is placed before the start instead.
