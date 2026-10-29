@@ -48,9 +48,9 @@
 
 | 依赖 | 说明 |
 |---|---|
-| Android SDK | 插件配置页的 `sdkPath`，留空则依次探测 `ANDROID_HOME`、`ANDROID_SDK_ROOT` 与常见安装路径。 |
+| Android SDK | 插件配置页的 `sdkPath`，留空则依次探测 `ANDROID_HOME`、`ANDROID_SDK_ROOT`、注册表、工程的 `local.properties`，以及各磁盘上的常见安装路径。 |
 | platform-tools、emulator 与系统镜像 | `adb` 与 `emulator` 来自 SDK；创建 AVD 需要与目标 API 级别匹配的系统镜像。 |
-| JDK | `jdkMajor`（默认 `17`）决定构建用哪个 JDK；生成工程的 JVM target 由它推导并钳制在 [17, 21]。 |
+| JDK | `jdkMajor`（默认 `17`）决定构建用哪个 JDK；本机没有该主版本时使用最接近的一个，生成工程的 JVM target 跟随实际使用的 JDK 并钳制在 [17, 21]。 |
 | Gradle | `android_build_app` 优先用工程自带的 `./gradlew`，没有就用 `PATH` 里的 `gradle` 生成 wrapper，并固定为本机已安装的 Gradle 版本。而 `android_create_app` 生成的工程不带 wrapper。 |
 | 一台设备或一个 AVD | 已连接设备，或一个可启动的 AVD；`autoStartEmulator` 决定工具能否自行启动模拟器。 |
 | Node.js ≥ 22 | DSH 宿主运行时。 |

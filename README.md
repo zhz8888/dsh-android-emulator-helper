@@ -48,9 +48,9 @@ On a machine with an Android SDK, a JDK and DSH installed:
 
 | Dependency | Notes |
 |---|---|
-| Android SDK | `sdkPath` on the plugin's configuration page, else `ANDROID_HOME`, `ANDROID_SDK_ROOT`, then the common install paths. |
+| Android SDK | `sdkPath` on the plugin's configuration page, else `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the Windows registry, the project's `local.properties`, then the common install paths on every drive. |
 | Platform tools, emulator and a system image | `adb` and `emulator` come from the SDK; an AVD needs a system image for the API level you target. |
-| JDK | `jdkMajor` (`17` by default) selects the JDK a build runs on; the generated project's JVM target is derived from it and clamped to [17, 21]. |
+| JDK | `jdkMajor` (`17` by default) selects the JDK a build runs on; the nearest installed JDK is used when that major is missing, and the generated project's JVM target follows the JDK in use and is clamped to [17, 21]. |
 | Gradle | `android_build_app` uses the project's `./gradlew` when it has one and `gradle` from `PATH` otherwise, and generates the wrapper with that `gradle`, pinning it to the installed Gradle's own version. The project `android_create_app` writes ships no wrapper. |
 | A device or an AVD | An attached device, or an AVD to boot; `autoStartEmulator` decides whether the tools may boot one themselves. |
 | Node.js ≥ 22 | The DSH host runtime. |

@@ -16,7 +16,7 @@ browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 233 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 253 tests: unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -62,12 +62,12 @@ dsh-android-emulator-helper/
 │   ├── runtime.js          # one runtime per call: session cwd + live settings → data directory
 │   ├── tools/index.js      # the 23 defineTool definitions, argument/result schemas, image admission
 │   ├── providers/          # ported from the original plugin file by file, now taking an explicit runtime
-│   └── util/               # process execution, paths, content blocks
+│   └── util/               # process execution, paths, content blocks, Windows registry/drive discovery, Java properties
 ├── skills/android-dev/     # SKILL.md + INSTALL_ENVIRONMENT.md
 ├── scripts/                # check-bundle.mjs (consistency gate), smoke.mjs (real-machine), verify-mount.mjs
 ├── types/                  # client-globals.d.ts: window.__ModuleLoader__ and the shell's run-time require
 ├── assets/                 # the four settings-page screenshots `screenshots.json` names
-└── test/                   # node:test unit and integration suites
+└── test/                   # node:test unit and integration suites; helpers/fake-tool.mjs renders the fake tools
 ```
 
 Four constraints shape that layout:
@@ -369,6 +369,36 @@ the mount, so a type error fails the definition of done too.
 never run under `pnpm test`: only a machine with an SDK, an emulator and Gradle
 can prove discovery, boot and teardown, screenshots, logcat, UI automation and a
 real `android_create_app` → build → install → launch cycle.
+
+### A fake tool is described once and rendered per platform
+
+Every test that drives a provider puts a fake `adb`, `emulator`, `avdmanager` or
+Gradle wrapper on `PATH`. Those fakes are **not** written as `.sh` scripts: a
+Windows machine cannot run one, so a shell-script fake is a test that passes on
+macOS and fails or is skipped everywhere else.
+
+`test/helpers/fake-tool.mjs` owns the convention. A fake is a **list of steps**
+— record the argv, print a line, branch on an argument or a file, copy, sleep,
+exit — and the helper renders it twice: a POSIX shell script on POSIX, a
+PowerShell script plus a `.cmd`/`.bat` launcher on Windows. That launcher is the
+name the plugin resolves on `PATH`, and `cmd.exe` is the only thing Windows can
+start a script through; the plugin already routes a batch file through it.
+
+Two consequences worth knowing:
+
+- **PowerShell is the Windows flavour, and that is a deliberate rule.** Write new
+  fakes as steps, never as a shell string, so both platforms keep working.
+- **A test runtime must pin `sdkPath`.** The plugin discovers the Android SDK on
+  its own, including by scanning the drive roots, so on a machine that *has* an
+  SDK installed the plugin would find the real `adb` instead of the fake. Point
+  `sdkPath` at a directory that holds no tools: the configured root is
+  authoritative, nothing is found in it, and resolution falls back to `PATH`,
+  which is where the fakes live. Every fake-tool runtime in the suite does this.
+
+The only tests skipped on Windows are ones whose contract **is** POSIX: SIGTERM
+trap-and-escalate, a grandchild holding a pipe open, and a directory symlink
+fixture (which needs `SeCreateSymbolicLinkPrivilege`). Each skip carries the
+reason next to it.
 
 Two limits are accepted rather than worked around:
 
