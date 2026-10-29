@@ -16,7 +16,7 @@ browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 265 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 273 tests: unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -363,7 +363,7 @@ see a type error at all.
 
 | Layer | Command | What it proves |
 |---|---|---|
-| Unit and parsers | `pnpm test` | Bundle load contract, manifest and patch contract, settings projection (live volatile reads, env fallback, out-of-range fallback), every ported parser (`adb devices`, `emulator -list-avds`, UI Automator XML, `input text` escaping, APK selection, JDK major normalisation), and the lossless-JSON projection |
+| Unit and parsers | `pnpm test` | Bundle load contract, manifest and patch contract, settings projection (live volatile reads, env fallback, out-of-range fallback), every ported parser (`adb devices`, `emulator -list-avds`, UI Automator XML, `input text` escaping, APK selection, JDK major normalisation), the SDK `adb` fallback search, and the lossless-JSON projection |
 | Configuration page render | `pnpm test` (`client-render.test.js`) | The whole form rendered with real React and `react-dom/server`: the registration targets `plugins.bundle.config` keyed by the package name and nothing else, every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, the override badge and reset, both route buttons, no title of its own, and no action bar while nothing is staged |
 | Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the exported plugin surface is the Plugins page's `plugins.bundle.config` keyed by the package name **and the registration itself reads that exported surface rather than repeating the literals** (and the bundle registers into no Settings section, in either quote style), the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, every field's kind is one the page actually renders (checked against the `RENDERERS` map's own keys, not just against the exported list), every `suggest` names a list the page provides (and a `discovery` field must carry one, because its dropdown has no other source), the two fixed dictionaries carry the same keys and every declared option label sits under the exact `field.<key>.option.<optionKey(value)>` key the page looks up, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
 | Route integration | `test/routes-integration.test.js` | The two configuration routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 17 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing both routes |
