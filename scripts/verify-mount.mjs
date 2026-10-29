@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
-import { rmSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
@@ -72,6 +72,22 @@ check('the real ToolRuntime mounted', ctx.get('tools') !== undefined)
 //   job, on a machine that has an SDK; here the tools are expected to fail
 //   inside their provider, which is exactly what the checks below assert.
 const scratch = path.join(ROOT, '.tmp-verify-mount-data')
+
+// `android_list_avds` reads the AVD directory as well as `emulator -list-avds`,
+// so its home is pinned to a scratch tree holding one complete record. Without
+// this the tool's verdict would depend on the developer's own AVDs — and now
+// that the scan answers without the emulator, "no error" would no longer mean
+// "this host has an SDK". The seeded record makes the check deterministic: the
+// scan finds it on any machine, and the expected name below is that record.
+const avdHome = path.join(scratch, 'avd')
+rmSync(scratch, { recursive: true, force: true })
+mkdirSync(path.join(avdHome, 'VerifyMount.avd'), { recursive: true })
+writeFileSync(
+  path.join(avdHome, 'VerifyMount.ini'),
+  ['avd.ini.encoding=UTF-8', `path=${path.join(avdHome, 'VerifyMount.avd')}`, 'target=android-35', ''].join('\n'),
+)
+process.env.ANDROID_AVD_HOME = avdHome
+
 const pluginFiber = ctx.plugin(plugin, { dataDir: scratch, autoStartEmulator: false })
 await pluginFiber
 
@@ -127,6 +143,22 @@ for (const name of [
   const payload = result.content?.find((block) => block.type === 'text')?.text ?? ''
   check(`${name} rendered model-visible JSON`, payload.trimStart().startsWith('{'), payload.slice(0, 50))
 }
+
+// The AVD home is pinned above, so this answer is the seeded record rather than
+// whatever the developer's machine happens to hold. It also proves the scan
+// path through the registry: `emulator -list-avds` may be missing or unable to
+// start here, and the record still has to be listed.
+const avdResult = await tools.execute({ name: 'android_list_avds', arguments: {}, callId: 'verify-avd', signal })
+/** @type {string[]} */
+let avdNames = []
+try {
+  avdNames = (JSON.parse(avdResult.content?.find((block) => block.type === 'text')?.text ?? '{}').avds ?? []).map(
+    (item) => item.name,
+  )
+} catch {
+  avdNames = []
+}
+check('android_list_avds lists the pinned AVD directory', avdNames.includes('VerifyMount'), avdNames)
 
 // Every remaining tool must at least survive the registry's argument validation
 // and its result schema. Without a device they are expected to fail *inside*

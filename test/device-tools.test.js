@@ -198,6 +198,10 @@ async function toolchain({ adb, emulator, avdmanager, config = {}, env = {} } = 
     env: {
       ...process.env,
       PATH: [binDir, process.env.PATH].filter(Boolean).join(path.delimiter),
+      // `listAvds` reads the AVD directory before it asks the emulator, so the
+      // home is pinned to the throwaway tree: a developer's own AVDs would
+      // otherwise join the list every test that starts an emulator reads.
+      ANDROID_AVD_HOME: path.join(workDir, 'avd'),
       ...env,
     },
   })

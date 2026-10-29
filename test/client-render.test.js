@@ -104,6 +104,18 @@ test('the diagnostics and discovery controls are present', () => {
   assert.match(report.markup, /Diagnostics and discovery/)
 })
 
+test('the default AVD is a dropdown, and the saved value is one of its options', () => {
+  // The field is a `discovery` kind: a real `<select>` fed by the discovery
+  // route, not a text box with a datalist. Before discovery has answered, the
+  // only option is the value the host serves — and it must render as selected
+  // rather than as a blank control that would commit an empty value on save.
+  assert.match(
+    report.markup,
+    /<option value="medium_phone" selected="">medium_phone<\/option>/,
+    'the saved AVD must be a selected option of the dropdown',
+  )
+})
+
 test('an overridden value shows the badge and its reset control', () => {
   // The fake host stores a user override for one field, so the shared form
   // marks it and offers the reset. Both are harness behaviour, but the page is

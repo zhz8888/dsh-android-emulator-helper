@@ -188,7 +188,14 @@ export function checkFieldKinds(fields, kinds) {
  * becomes an empty list. The datalist then simply disappears, with no error
  * anywhere — the field still renders, just without its suggestions.
  *
- * @param {Array<{key: string, suggest?: string}>} fields - field descriptors.
+ * A `discovery` field has no other source of options: its descriptor carries no
+ * `options`, and the dropdown renders only what the discovery list holds plus
+ * the saved value. A discovery field without `suggest` therefore renders a
+ * control with one option in it, which looks like an empty machine rather than
+ * like a broken field — which is why that combination is refused here instead
+ * of being left to be noticed on screen.
+ *
+ * @param {Array<{key: string, kind?: string, suggest?: string}>} fields - field descriptors.
  * @param {string[]} sources - the suggestion-source names the client provides.
  * @returns {string[]} failure messages; empty when the invariant holds.
  */
@@ -199,7 +206,12 @@ export function checkSuggestSources(fields, sources) {
   const problems = []
   for (const field of fields ?? []) {
     const source = field.suggest
-    if (source === undefined || source === null || source === '') continue
+    const missing = source === undefined || source === null || source === ''
+    if (field.kind === 'discovery' && missing) {
+      problems.push(`field "${field.key}": a discovery dropdown must name the suggest source its options come from`)
+      continue
+    }
+    if (missing) continue
     if (!sources.includes(source)) {
       problems.push(
         `field "${field.key}": suggests ${JSON.stringify(source)}, which the client does not provide (${sources.join(', ')})`,

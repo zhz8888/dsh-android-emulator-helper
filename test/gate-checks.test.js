@@ -20,7 +20,7 @@ import { readFileSync } from 'node:fs'
  */
 
 /** The kinds the browser half renders a control for. */
-const KINDS = ['text', 'number', 'boolean', 'select', 'multiline']
+const KINDS = ['text', 'number', 'boolean', 'select', 'multiline', 'discovery']
 
 /** The suggestion sources the browser half fills its datalists from. */
 const SOURCES = ['avds', 'javaMajors', 'deviceSerials', 'apiLevels', 'buildTools']
@@ -89,6 +89,21 @@ test('a field without a suggest is not reported', () => {
   assert.deepEqual(gate.checkSuggestSources([field('sdkPath', 'text')], SOURCES), [])
   assert.deepEqual(gate.checkSuggestSources([field('sdkPath', 'text', { suggest: undefined })], SOURCES), [])
   assert.deepEqual(gate.checkSuggestSources([field('sdkPath', 'text', { suggest: null })], SOURCES), [])
+})
+
+test('a discovery dropdown without a suggest source is reported', () => {
+  // Its descriptor carries no `options`, so `suggest` is the only source of
+  // options: without it the control renders the saved value alone, which looks
+  // like a machine with no AVDs rather than like a broken field.
+  const failures = gate.checkSuggestSources([field('defaultAvd', 'discovery')], SOURCES)
+  assert.ok(failures.length > 0, 'a discovery field must name a suggest source')
+  const message = failures.join('\n')
+  assert.match(message, /defaultAvd/, 'the message must name the offending field')
+  assert.match(message, /suggest/, 'the message must say what is missing')
+})
+
+test('a discovery dropdown that names a provided source is reported by no check', () => {
+  assert.deepEqual(gate.checkSuggestSources([field('defaultAvd', 'discovery', { suggest: 'avds' })], SOURCES), [])
 })
 
 // ---------------------------------------------------------------------------

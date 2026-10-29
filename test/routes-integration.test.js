@@ -1,8 +1,22 @@
 import assert from 'node:assert/strict'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import * as plugin from '../lib/index.js'
 import { FIELD_KEYS } from '../lib/settings.js'
+
+/**
+ * The AVD directory the inventory route must scan.
+ *
+ * The route creates its runtime from `process.env`, and the AVD list is read
+ * from disk as well as from `emulator -list-avds`, so the home is pinned to a
+ * throwaway tree here: a developer's own AVDs would otherwise leak into the
+ * answer. Each test file runs in its own process, so the assignment cannot
+ * reach another suite.
+ */
+process.env.ANDROID_AVD_HOME = await mkdtemp(path.join(tmpdir(), 'aemh-routes-avd-'))
 
 /**
  * Integration tests for the two settings-page Fetch routes.
@@ -126,6 +140,11 @@ test('the inventory route answers option lists the form fields can consume', asy
   }
   assert.ok(Array.isArray(body.devices))
   assert.ok(Array.isArray(body.javaHomes))
+  // The AVD list is now read from the AVD directory as well as from the
+  // emulator, so the route also names the directory it scanned — the page uses
+  // it to tell "no AVDs here" from "the scan ran somewhere else".
+  assert.equal(typeof body.avdHome, 'string')
+  assert.ok(body.avdHome.length > 0, 'the inventory must name the AVD directory it scanned')
   // `detectedSdkRoot` is a path when one was found and null when none was, so
   // the form can tell "nothing detected" from "detected here".
   assert.ok(body.detectedSdkRoot === null || typeof body.detectedSdkRoot === 'string')

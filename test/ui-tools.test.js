@@ -206,7 +206,13 @@ async function fakeAdb(options = {}) {
     },
     exec: undefined,
     logger: { info() {}, warn() {}, error() {} },
-    env: { ...process.env, PATH: [binDir, process.env.PATH].filter(Boolean).join(path.delimiter) },
+    env: {
+      ...process.env,
+      PATH: [binDir, process.env.PATH].filter(Boolean).join(path.delimiter),
+      // `listAvds` reads the AVD directory too, so a developer's own AVDs must
+      // not join the list the fake emulator answers.
+      ANDROID_AVD_HOME: path.join(dataDir, 'avd'),
+    },
   })
   return {
     rt,

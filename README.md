@@ -10,6 +10,7 @@ A DeepSeek Harness (DSH) native port of the official ZCode `android-emulator@0.1
 
 - Tool and argument names are identical to the original, so workflows written for its `android_emulator` MCP server keep working; the port adds no tool and drops none.
 - 17 settings fields in 5 groups, all live-editable; the seven fields the original exposed still fall back to their `ANDROID_PLUGIN_*` variable, then to the built-in default.
+- The default AVD is picked from a dropdown of the AVDs on this machine that still have their payload: AVD discovery scans the AVD directory (`ANDROID_AVD_HOME`, then `$ANDROID_USER_HOME/avd`, then `~/.android/avd`) as well as asking `emulator -list-avds`, so the list survives a host where the emulator cannot be started.
 - `android_preflight` and the parameter page's **Run diagnostic** button run the same checks — SDK, `adb`, `emulator`, AVDs, JDK, Gradle — and print a fix for each failure.
 - Published as `@zhz8888/dsh-android-emulator-helper`; the plugin page shows **Android Emulator Helper** / **Android 模拟器助手** from `locale/` rather than the raw package name, and both descriptions say the plugin is unofficial and not affiliated with Google.
 
@@ -100,7 +101,7 @@ The settings namespace equals the profile patch row id equals `android-emulator-
 | SDK and toolchain | `sdkPath` | text | empty (auto-detect) | `ANDROID_PLUGIN_SDK_PATH` |
 | | `jdkMajor` | text, suggestions from this machine | `17` | `ANDROID_PLUGIN_JDK_MAJOR` |
 | | `buildToolsVersion` | text, suggestions | `35.0.0` | `ANDROID_PLUGIN_BUILD_TOOLS_VERSION` |
-| Emulator and devices | `defaultAvd` | text, suggestions | `medium_phone` | `ANDROID_PLUGIN_DEFAULT_AVD` |
+| Emulator and devices | `defaultAvd` | select (`discovery`), every AVD found on this machine | `medium_phone` | `ANDROID_PLUGIN_DEFAULT_AVD` |
 | | `defaultSerial` | text, suggestions | empty | — |
 | | `autoStartEmulator` | switch | on | — |
 | | `emulatorArgs` | multiline, one argument per line | empty | — |
@@ -118,7 +119,7 @@ The settings namespace equals the profile patch row id equals `android-emulator-
 Two buttons back the page with exact Fetch routes on the host half:
 
 - **Run diagnostic** → `GET /api/android-emulator-helper/status`, the same checks as `android_preflight`, each with its detail and fix hint.
-- **Refresh devices and AVDs** → `GET /api/android-emulator-helper/inventory`, detecting the SDK root, AVDs, connected devices, installed JDKs, system images, platforms and build-tools to populate the fields' suggestions.
+- **Refresh devices and AVDs** → `GET /api/android-emulator-helper/inventory`, detecting the SDK root, the AVDs stored in the AVD directory (`ANDROID_AVD_HOME`, else `$ANDROID_USER_HOME/avd`, else `~/.android/avd`, merged with the names `emulator -list-avds` adds), connected devices, installed JDKs, system images, platforms and build-tools to populate the fields' suggestions. A record whose payload directory is gone is dropped from both sources. The scan is what lets the default-AVD dropdown list the machine's AVDs even when the emulator cannot be run.
 
 ### Legacy configuration
 

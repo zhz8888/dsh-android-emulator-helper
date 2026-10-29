@@ -63,6 +63,9 @@ async function fakeRuntime({ binDir, config = {} } = {}) {
       ...process.env,
       PATH: [bin, process.env.PATH].filter(Boolean).join(path.delimiter),
       ANDROID_PLUGIN_DEFAULT_AVD: 'Fake_AVD',
+      // `listAvds` reads the AVD directory too, so the home is pinned: the
+      // developer's own AVDs must not join the fake emulator's list.
+      ANDROID_AVD_HOME: path.join(dataDir, 'avd'),
     },
   })
   return { rt, binDir: bin, dataDir }

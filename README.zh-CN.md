@@ -10,6 +10,7 @@
 
 - 工具名、参数名与原插件完全一致，为原 `android_emulator` MCP 服务器写的工作流可直接迁移；这次移植既不新增工具，也不删除工具。
 - 5 组 17 个设置项，全部实时生效；原插件暴露的 7 个字段仍会回落到同名 `ANDROID_PLUGIN_*` 变量，再回落到内置默认值。
+- 默认 AVD 从下拉框里选，列出本机仍有 payload 的 AVD：AVD 探测既扫描 AVD 目录（`ANDROID_AVD_HOME`，否则 `$ANDROID_USER_HOME/avd`，否则 `~/.android/avd`），也询问 `emulator -list-avds`，因此即使 emulator 无法启动，列表依然可用。
 - `android_preflight` 与参数页的 **检测环境** 按钮跑同一套检查——SDK、`adb`、`emulator`、AVD、JDK、Gradle——并逐条给出修复建议。
 - 包名为 `@zhz8888/dsh-android-emulator-helper`；插件页显示的是 `locale/` 里的本地化名称 **Android Emulator Helper** / **Android 模拟器助手**，而不是原始包名，两条描述都写明本插件非官方、与 Google 无隶属关系。
 
@@ -100,7 +101,7 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 | SDK 与工具链 | `sdkPath` | 文本 | 空（自动探测） | `ANDROID_PLUGIN_SDK_PATH` |
 | | `jdkMajor` | 文本，建议来自本机 | `17` | `ANDROID_PLUGIN_JDK_MAJOR` |
 | | `buildToolsVersion` | 文本，建议来自本机 | `35.0.0` | `ANDROID_PLUGIN_BUILD_TOOLS_VERSION` |
-| 模拟器与设备 | `defaultAvd` | 文本，建议来自本机 | `medium_phone` | `ANDROID_PLUGIN_DEFAULT_AVD` |
+| 模拟器与设备 | `defaultAvd` | 下拉（`discovery`），列出本机所有 AVD | `medium_phone` | `ANDROID_PLUGIN_DEFAULT_AVD` |
 | | `defaultSerial` | 文本，建议来自本机 | 空 | — |
 | | `autoStartEmulator` | 开关 | 开 | — |
 | | `emulatorArgs` | 多行文本，每行一个参数 | 空 | — |
@@ -118,7 +119,7 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 配置页的两个按钮调用 host 半侧的两个精确 Fetch 路由：
 
 - **检测环境** → `GET /api/android-emulator-helper/status`，返回与 `android_preflight` 相同的检查结果，逐条显示状态、详情与修复建议。
-- **刷新设备与 AVD** → `GET /api/android-emulator-helper/inventory`，探测 SDK 根目录、AVD、已连接设备、已安装 JDK、已装系统镜像/platform/build-tools，用于填充上方字段的建议列表。
+- **刷新设备与 AVD** → `GET /api/android-emulator-helper/inventory`，探测 SDK 根目录、AVD 目录（`ANDROID_AVD_HOME`，否则 `$ANDROID_USER_HOME/avd`，否则 `~/.android/avd`）里的 AVD 并与 `emulator -list-avds` 给出的名字合并、已连接设备、已安装 JDK、已装系统镜像/platform/build-tools，用于填充上方字段的建议列表。payload 目录已不存在的记录在两个来源里都会被剔除。正是这次扫描让默认 AVD 下拉框在 emulator 无法运行时也能列出本机 AVD。
 
 ### 兼容旧配置
 

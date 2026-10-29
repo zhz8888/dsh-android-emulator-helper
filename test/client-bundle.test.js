@@ -26,6 +26,21 @@ test('client bundle exports apply, inject and its namespace', () => {
   assert.equal(exported.NS, 'android-emulator-helper')
 })
 
+test('a discovery dropdown keeps a saved value the discovery did not return', () => {
+  // The default-AVD dropdown is filled from the discovery route, and the saved
+  // value may be an AVD that was deleted, or one named before an SDK was
+  // installed. A `<select>` whose value matches no option renders as nothing
+  // selected, so the saved value has to be appended to the discovered list —
+  // once, and only when it is not already there.
+  const { exported } = loadBundle()
+  assert.deepEqual(exported.DISCOVERY_OPTIONS('medium_phone', []), ['medium_phone'])
+  assert.deepEqual(exported.DISCOVERY_OPTIONS('medium_phone', undefined), ['medium_phone'])
+  assert.deepEqual(exported.DISCOVERY_OPTIONS('Pixel_8', ['Emulator_Only', 'Pixel_8']), ['Emulator_Only', 'Pixel_8'])
+  assert.deepEqual(exported.DISCOVERY_OPTIONS('Gone', ['Pixel_8', 'Gone']), ['Pixel_8', 'Gone'], 'no duplicate option')
+  assert.deepEqual(exported.DISCOVERY_OPTIONS('', ['Pixel_8']), ['Pixel_8'], 'an empty saved value is not an option')
+  assert.deepEqual(exported.DISCOVERY_OPTIONS('  ', ['Pixel_8']), ['Pixel_8', '  '], 'only the empty string is skipped')
+})
+
 test('client bundle resolves only modules from the static table', () => {
   const { required } = loadBundle()
   assert.ok(required.length > 0, 'the bundle requires at least React')

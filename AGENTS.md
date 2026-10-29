@@ -16,7 +16,7 @@ browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 253 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 265 tests: unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -126,6 +126,15 @@ checks them against the page's own dictionary instead: the **option labels**,
 which name one of a select's options rather than a field, and the **suggestion
 sources**, which name a list the page fills from a discovery request. Neither is
 a setting, so the host has nothing to mirror.
+
+A third client-side idea is the **`discovery` field kind**: a dropdown whose
+options come from the discovery list its `suggest` names rather than from the
+field table, so the host declares no `options` and the page fills the control
+from the inventory route. The kind itself is still declared on both sides and
+compared by the gate — only the option values are runtime data. The default AVD
+is the field that uses it, and the page reads the inventory once when it opens,
+because a dropdown that stays empty until the user finds the refresh button is
+not a list of this machine's AVDs.
 
 What the bundle may `require` is a run-time rule, not a build-time import
 graph. The shell's module table answers a platform seed word, an
@@ -356,7 +365,7 @@ see a type error at all.
 |---|---|---|
 | Unit and parsers | `pnpm test` | Bundle load contract, manifest and patch contract, settings projection (live volatile reads, env fallback, out-of-range fallback), every ported parser (`adb devices`, `emulator -list-avds`, UI Automator XML, `input text` escaping, APK selection, JDK major normalisation), and the lossless-JSON projection |
 | Configuration page render | `pnpm test` (`client-render.test.js`) | The whole form rendered with real React and `react-dom/server`: the registration targets `plugins.bundle.config` keyed by the package name and nothing else, every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, the override badge and reset, both route buttons, no title of its own, and no action bar while nothing is staged |
-| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the exported plugin surface is the Plugins page's `plugins.bundle.config` keyed by the package name **and the registration itself reads that exported surface rather than repeating the literals** (and the bundle registers into no Settings section, in either quote style), the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, every field's kind is one the page actually renders (checked against the `RENDERERS` map's own keys, not just against the exported list) and every `suggest` names a list the page provides, the two fixed dictionaries carry the same keys and every declared option label sits under the exact `field.<key>.option.<optionKey(value)>` key the page looks up, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
+| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the exported plugin surface is the Plugins page's `plugins.bundle.config` keyed by the package name **and the registration itself reads that exported surface rather than repeating the literals** (and the bundle registers into no Settings section, in either quote style), the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, every field's kind is one the page actually renders (checked against the `RENDERERS` map's own keys, not just against the exported list), every `suggest` names a list the page provides (and a `discovery` field must carry one, because its dropdown has no other source), the two fixed dictionaries carry the same keys and every declared option label sits under the exact `field.<key>.option.<optionKey(value)>` key the page looks up, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
 | Route integration | `test/routes-integration.test.js` | The two configuration routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 17 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing both routes |
 | Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, **all 23 dispatched through the registry**, every argument schema enforced by the registry, every declared result schema validated for shape (device-backed tools fail before a value exists), malformed arguments refused, unknown names unresolved, 17 volatile fields, full unregistration on dispose |
 | Type gate | `tsc -p tsconfig.json --noEmit` and `tsc -p tsconfig.client.json --noEmit` | The host half's contracts against the real `@deepseek-ai/*` declarations, and the browser half's contracts against the real `react` and the real `dsh-client-ui-primitives` declarations — the two halves checked apart, because they run in different realms |
@@ -384,7 +393,7 @@ PowerShell script plus a `.cmd`/`.bat` launcher on Windows. That launcher is the
 name the plugin resolves on `PATH`, and `cmd.exe` is the only thing Windows can
 start a script through; the plugin already routes a batch file through it.
 
-Two consequences worth knowing:
+Three consequences worth knowing:
 
 - **PowerShell is the Windows flavour, and that is a deliberate rule.** Write new
   fakes as steps, never as a shell string, so both platforms keep working.
@@ -394,11 +403,17 @@ Two consequences worth knowing:
   `sdkPath` at a directory that holds no tools: the configured root is
   authoritative, nothing is found in it, and resolution falls back to `PATH`,
   which is where the fakes live. Every fake-tool runtime in the suite does this.
+- **A test runtime must also pin the AVD home.** `listAvds` reads the AVD
+  directory as well as `emulator -list-avds`, so a runtime that leaves
+  `ANDROID_AVD_HOME` (and with it `HOME`/`USERPROFILE`) at the developer's own
+  would list that machine's AVDs in every suite that starts an emulator. Point
+  it at the throwaway tree, as the fake-tool runtimes do.
 
-The only tests skipped on Windows are ones whose contract **is** POSIX: SIGTERM
+The tests skipped on Windows are the ones whose contract **is** POSIX — SIGTERM
 trap-and-escalate, a grandchild holding a pipe open, and a directory symlink
-fixture (which needs `SeCreateSymbolicLinkPrivilege`). Each skip carries the
-reason next to it.
+fixture (which needs `SeCreateSymbolicLinkPrivilege`) — plus the seed-table
+check, which skips when no installed DSH shell can be read. Each skip carries
+the reason next to it.
 
 Two limits are accepted rather than worked around:
 
@@ -407,7 +422,9 @@ Two limits are accepted rather than worked around:
   request, so a bare `curl` answers `403 forbidden` before the handler runs.
   `test/routes-integration.test.js` therefore invokes the handlers directly on a
   real Cordis context, and the page's spacing, dark theme and narrow-width
-  wrapping are checked by eye in the GUI.
+  wrapping are checked by eye in the GUI — as is the discovery-backed
+  default-AVD dropdown, whose option list exists only after the page's own
+  inventory request has landed.
 - `@deepseek-ai/dsh-client-ui-primitives` is published in many versions, but its
   `latest` dist-tag still points at `0.0.1-rc.1`, whose declarations match
   neither the runtime API nor this plugin: five of the primitives the browser
