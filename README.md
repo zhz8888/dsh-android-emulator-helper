@@ -127,40 +127,45 @@ The original plugin's `userConfig` — the seven variables in the last column ab
 
 ## Screenshots
 
-All four are the live page in DSH harness 0.2.1-rc.2, in the order you scroll it
+All four are the live page in DSH harness 0.2.1-rc.3, in the order you scroll it
 — nothing is mocked up. They are 1598 × 1588 PNGs of the tightened card rhythm
 (7px above and below a field, a `12px 16px` card, 16px between cards), captured
 in the Chinese locale with the **Plugins** panel open on the plugin's own detail
 page: the first shot opens on the plugin's title **Android 模拟器助手** and
 description, the sidebar shows **插件** selected, and the field keys in the table
-above are the same in either language. Grey text is a placeholder standing in for a field left empty,
-and the sticky save bar appears only while an edit is staged, so it is not in
-these shots.
+above are the same in either language. Grey text is a placeholder standing in
+for a field left empty, a field carrying a value other than its declared default
+shows an override badge and a reset control, and the sticky save bar appears
+only while an edit is staged, so it is not in these shots.
 
 **1. SDK and toolchain** — the page opens with the plugin's title, package name
 and description, then the SDK root, JDK major version and build-tools version
-every `android_*` call resolves first, and the emulator-and-devices card down to
-its boot timeout:
+every `android_*` call resolves first, the emulator-and-devices card down to its
+boot timeout, and the start of the API-level card:
 
-![The Android Emulator Helper page in the Plugins panel of DSH: the plugin title and description, then the SDK and toolchain card with the Android SDK root, JDK major version and build-tools version, then the emulator-and-devices card down to the boot timeout](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-1-sdk-and-toolchain.png)
+![The Android Emulator Helper page in the Plugins panel of DSH: the plugin title and description, then the SDK and toolchain card with the Android SDK root, JDK major version and build-tools version, then the emulator-and-devices card down to the boot timeout and the start of the API-level card](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-1-sdk-and-toolchain.png)
 
-**2. Emulator and devices** — which device a call talks to and how an emulator is
-started: the default AVD, the default serial, the auto-start switch, the extra
-`emulator` arguments and the boot timeout, then the API-level card:
+**2. Emulator and devices** — the page scrolled by one card: the SDK-and-toolchain
+card from its heading, then the emulator-and-devices card — the default AVD, the
+default serial, the auto-start switch, the extra `emulator` arguments and the
+boot timeout — then the API-level card and the start of the build card:
 
-![The page scrolled to the emulator-and-devices card: default AVD, default device serial, the auto-start emulator switch, the extra emulator arguments and the boot timeout, then the API-level card starting at the Android API level](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-2-emulator-and-devices.png)
+![The page scrolled by one card: the SDK-and-toolchain card from its heading, then the emulator-and-devices card with the default AVD, default device serial, the auto-start emulator switch, the extra emulator arguments and the boot timeout, then the API-level card and the start of the build card](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-2-emulator-and-devices.png)
 
-**3. API level and build** — what a generated project and an installed system
-image target, the `gradle` timeout and extra arguments, then the top of the
-output card:
+**3. API level and build** — the page scrolled further: the emulator-and-devices
+card from its heading, then the API-level-and-system-image card with the system
+image variant, ABI and default minSdk, the build card with the Gradle build
+timeout and the extra Gradle arguments, then the top of the output card:
 
-![The page scrolled further: the API-level-and-system-image card with the system image variant, ABI and default minSdk, the build card with the Gradle build timeout and the extra Gradle arguments, then the output card starting at the data directory](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-3-api-and-build.png)
+![The page scrolled further: the emulator-and-devices card from its heading, then the API-level-and-system-image card with the system image variant, ABI and default minSdk, the build card with the Gradle build timeout and the extra Gradle arguments, then the top of the output card](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-3-api-and-build.png)
 
 **4. Output and diagnostics** — where screenshots and build logs land, then the
-two buttons backing the page, next to the Fetch routes above; the shot ends where
-the plugin's form section ends:
+diagnostics-and-discovery card: the two buttons backing the page, next to the
+Fetch routes above, and the discovery result it fills in — the detected SDK
+root, AVD home, AVDs and installed system images. The shot ends where the
+plugin's form section ends:
 
-![The bottom of the form: the output-and-logs card with the data directory, screenshot directory and default logcat line count, then the diagnostics-and-discovery card with the run-diagnostic and refresh-devices buttons](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-4-output-and-diagnostics.png)
+![The bottom of the form: the output-and-logs card with the data directory, screenshot directory and default logcat line count, then the diagnostics-and-discovery card with the run-diagnostic and refresh-devices buttons and the discovery result listing the detected SDK root, AVD home, AVDs and installed system images](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-4-output-and-diagnostics.png)
 
 `screenshots.json` lists these four files in this order next to `package.json` in
 the repository, which is how a plugin market finds them.
