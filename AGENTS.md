@@ -16,13 +16,13 @@ browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 273 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 353 tests: unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
 pnpm run smoke               # read-only real-machine probes
 pnpm run smoke:emulator      # also boot an AVD, create/build/install/launch, screenshot, logs, stop
-pnpm run link:dsh-deps       # offline dev: symlink a local DSH's @deepseek-ai packages
+pnpm run link:dsh-deps       # offline dev: link a local DSH's @deepseek-ai packages
 ```
 
 `pnpm run check` must be green before any commit that touches `lib/`. It is the
@@ -412,8 +412,9 @@ Three consequences worth knowing:
 The tests skipped on Windows are the ones whose contract **is** POSIX — SIGTERM
 trap-and-escalate, a grandchild holding a pipe open, and a directory symlink
 fixture (which needs `SeCreateSymbolicLinkPrivilege`) — plus the seed-table
-check, which skips when no installed DSH shell can be read. Each skip carries
-the reason next to it.
+check, which skips when no installed DSH web frontend can be located on the
+platform; `DSH_WEB_FRONTEND` points it at one the default search cannot see.
+Each skip carries the reason next to it.
 
 Two limits are accepted rather than worked around:
 

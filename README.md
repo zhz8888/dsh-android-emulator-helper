@@ -52,7 +52,7 @@ On a machine with an Android SDK, a JDK and DSH installed:
 | Android SDK | `sdkPath` on the plugin's configuration page, else `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the Windows registry, the project's `local.properties`, then the common install paths on every drive. |
 | Platform tools, emulator and a system image | `adb` and `emulator` come from the SDK; an AVD needs a system image for the API level you target. When `adb` is missing from `PATH`, the SDK's own `platform-tools` copy is used instead: a last-resort search looks for it inside the SDK the diagnostic found, and on Windows also under the drive roots, because a machine with the SDK installed must not be reported as having no `adb`. |
 | JDK | `jdkMajor` (`17` by default) selects the JDK a build runs on; the nearest installed JDK is used when that major is missing, and the generated project's JVM target follows the JDK in use and is clamped to [17, 21]. |
-| Gradle | `android_build_app` uses the project's `./gradlew` when it has one and `gradle` from `PATH` otherwise, and generates the wrapper with that `gradle`, pinning it to the installed Gradle's own version. The project `android_create_app` writes ships no wrapper. |
+| Gradle | `android_build_app` uses the project's `./gradlew` when it has one and `gradle` from `PATH` otherwise; a generated wrapper is pinned to the installed Gradle's version but never below **8.9**, the floor the bundled Android Gradle Plugin 8.7.3 accepts. The project `android_create_app` writes ships no wrapper. |
 | A device or an AVD | An attached device, or an AVD to boot; `autoStartEmulator` decides whether the tools may boot one themselves. |
 | Node.js ≥ 22 | The DSH host runtime. |
 
@@ -175,15 +175,15 @@ the repository, which is how a plugin market finds them.
 | `android_discover_project` | Find Gradle roots, modules, variants, application ids, manifests and APK outputs. |
 | `android_create_app` | Generate a minimal Kotlin + Jetpack Compose project. |
 | `android_build_app` | Build one module and variant with Gradle. |
-| `android_build_and_run` | Build → reuse or start a device → install → launch. |
+| `android_build_and_run` | Build → reuse or start a device → install → launch the package read back from the built APK. |
 | `android_list_devices` / `android_list_avds` | List the devices adb sees / the AVDs on this machine. |
 | `android_start_emulator` / `android_stop_emulator` | Start a new GUI emulator / stop one by serial. |
 | `android_create_avd` | Create an AVD with `avdmanager`. |
 | `android_install_app` / `android_launch_app` / `android_terminate_app` | Install an APK / launch by application id / force-stop. |
 | `android_open_url` | Open a URL on the device. |
 | `android_screenshot` | Capture a PNG to disk, and return it as an image when the model accepts image input. |
-| `android_logs` | Read the logcat tail, optionally filtered by application id. |
-| `android_ui_status` | Report what UI automation is available. |
+| `android_logs` | Read the logcat tail, optionally filtered to the app's own process (by PID). |
+| `android_ui_status` | Probe and report device-side UI automation availability. |
 | `android_ui_describe` / `android_ui_resolve` | The UI Automator element tree / resolve a text, description, resource id or class to coordinates. |
 | `android_ui_tap` / `android_ui_swipe` / `android_ui_type_text` / `android_ui_keyevent` | adb-backed tap, swipe, typing and key events. |
 
@@ -219,6 +219,14 @@ The direct spawn is a deliberate trade-off: `gradlew`, `adb` and `emulator` beha
   writes no `gradlew`, and `android_build_app` can only generate one by running the
   `gradle` it finds on `PATH`; without one it fails with an explicit message. Install
   Gradle once, or run `gradle wrapper` in the project root yourself.
+- **A generated project needs `compileSdk` 35 or newer.** The template pins
+  `androidx.core:core-ktx` 1.15.0, whose `minCompileSdk` is 35; `android_create_app`
+  refuses an older level instead of writing a project Gradle cannot configure.
+- **A batch-file tool cannot carry an argument holding a defined `%NAME%` reference.**
+  `gradlew.bat`, `avdmanager.bat` and any other `.bat`/`.cmd` launcher run through
+  `cmd.exe`, which expands such a reference even inside quotes; the call refuses the
+  argument instead of letting it be silently rewritten. A bare `%` — including the
+  `%s` escapes `input text` sends for spaces — is safe.
 - **Linux is unsupported**, exactly as in the original; `android_preflight` reports it.
 - `android_start_emulator` always starts a new emulator and never reuses one. Pass `serial` to the other tools to reuse a target.
 - `android_create_avd` always answers `no` to `avdmanager`'s confirmation, so it can never silently trigger a multi-gigabyte image download; install the image with `sdkmanager` first.
