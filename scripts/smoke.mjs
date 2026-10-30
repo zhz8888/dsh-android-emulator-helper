@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { rmSync } from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import { createRuntime } from '../lib/runtime.js'
 import { inventory, preflight } from '../lib/providers/preflight.js'
@@ -49,41 +51,54 @@ await step('settings inventory (settings-page route)', () => inventory(runtime))
 if (withEmulator) {
   const { startEmulator } = await import('../lib/providers/avd.js')
   const started = await step('android_start_emulator', () => startEmulator(runtime, {}))
-  if (started.ok) {
-    const serial = started.value.serial
-    // The reason this layer exists: prove the project → build → install → launch
-    // cycle the plugin is for, not just the discovery calls around it.
-    const { create } = await import('../lib/providers/project.js')
-    const created = await step('android_create_app', () =>
-      create(runtime, { name: 'SmokeApp', dir: '.tmp-smoke-app', overwrite: true }),
-    )
-    const { buildApp } = await import('../lib/providers/build.js')
-    const built = await step('android_build_app', () =>
-      buildApp(runtime, { projectDir: '.tmp-smoke-app', timeoutMs: 600_000 }),
-    )
-    if (created.ok && built.ok && built.value.apkPath && built.value.applicationId) {
-      const { install, launch } = await import('../lib/providers/app.js')
-      await step('android_install_app', () =>
-        install(runtime, { serial, apkPath: built.value.apkPath, timeoutMs: 120_000 }),
+  // The project this run writes, and the emulator it boots, both outlive the
+  // process unless something removes them: a Gradle project under the session
+  // workspace would be picked up by every later `android_discover_project`, and a
+  // booted emulator makes the next start answer "already running". The cleanup
+  // therefore runs in `finally`, so a failed step, a thrown provider or an
+  // operator's interrupt cannot leave either behind.
+  const projectDir = path.resolve(runtime.cwd, '.tmp-smoke-app')
+  try {
+    if (started.ok) {
+      const serial = started.value.serial
+      // The reason this layer exists: prove the project → build → install → launch
+      // cycle the plugin is for, not just the discovery calls around it.
+      const { create } = await import('../lib/providers/project.js')
+      const created = await step('android_create_app', () =>
+        create(runtime, { name: 'SmokeApp', dir: '.tmp-smoke-app', overwrite: true }),
       )
-      await step('android_launch_app', () =>
-        launch(runtime, { serial, applicationId: built.value.applicationId, timeoutMs: 60_000 }),
+      const { buildApp } = await import('../lib/providers/build.js')
+      const built = await step('android_build_app', () =>
+        buildApp(runtime, { projectDir: '.tmp-smoke-app', timeoutMs: 600_000 }),
       )
-      const { status } = await import('../lib/providers/ui.js')
-      await step('android_ui_status', () => status(runtime))
+      if (created.ok && built.ok && built.value.apkPath && built.value.applicationId) {
+        const { install, launch } = await import('../lib/providers/app.js')
+        await step('android_install_app', () =>
+          install(runtime, { serial, apkPath: built.value.apkPath, timeoutMs: 120_000 }),
+        )
+        await step('android_launch_app', () =>
+          launch(runtime, { serial, applicationId: built.value.applicationId, timeoutMs: 60_000 }),
+        )
+        const { status } = await import('../lib/providers/ui.js')
+        await step('android_ui_status', () => status(runtime))
+      }
+      const { shot } = await import('../lib/providers/screenshot.js')
+      await step('android_screenshot', async () => {
+        const capture = await shot(runtime, {})
+        return { device: capture.device.serial, path: capture.path, bytes: capture.bytes }
+      })
+      const { logs } = await import('../lib/providers/logs.js')
+      await step('android_logs', async () => {
+        const result = await logs(runtime, { lines: 20 })
+        return { lines: result.lines, characters: result.output.length }
+      })
     }
-    const { shot } = await import('../lib/providers/screenshot.js')
-    await step('android_screenshot', async () => {
-      const capture = await shot(runtime, {})
-      return { device: capture.device.serial, path: capture.path, bytes: capture.bytes }
-    })
-    const { logs } = await import('../lib/providers/logs.js')
-    await step('android_logs', async () => {
-      const result = await logs(runtime, { lines: 20 })
-      return { lines: result.lines, characters: result.output.length }
-    })
-    const { stopEmulator } = await import('../lib/providers/avd.js')
-    await step('android_stop_emulator', () => stopEmulator(runtime, { serial }))
+  } finally {
+    if (started.ok) {
+      const { stopEmulator } = await import('../lib/providers/avd.js')
+      await step('android_stop_emulator', () => stopEmulator(runtime, { serial: started.value.serial }))
+    }
+    rmSync(projectDir, { recursive: true, force: true })
   }
 }
 
