@@ -6,6 +6,7 @@ import path from 'node:path'
 import { createRuntime } from '../lib/runtime.js'
 import { blockerHint, startedEmulatorCandidates, startEmulator } from '../lib/providers/avd.js'
 import { pickDevice } from '../lib/providers/device.js'
+import { findTool } from '../lib/providers/sdk.js'
 import { writeFakeTool } from './helpers/fake-tool.mjs'
 import {
   KEY_EVENTS,
@@ -81,9 +82,10 @@ const NODE_RECORD_KEYS = [
  * The fake is rendered for the host by `helpers/fake-tool.mjs`: a shell script
  * on POSIX, a PowerShell script behind a `.cmd` launcher on Windows.
  *
- * @param {{screen?: string, devices?: string, devicesAfterStart?: string, emulatorSteps?: object[]}} [options]
- *   - the XML the next dump should publish, the device transcripts, and the
- *   steps of a fake `emulator` to install beside `adb`.
+ * @param {{screen?: string, devices?: string, devicesAfterStart?: string, emulatorSteps?: object[], uiAutomator?: boolean}} [options]
+ *   - the XML the next dump should publish, the device transcripts, the steps
+ *   of a fake `emulator` to install beside `adb`, and whether the device
+ *   reports a `uiautomator` binary to `android_ui_status` (defaults to yes).
  * @returns {Promise<{rt: object, stateDir: string, argv: () => Promise<string[]>, setScreen: (xml: string) => Promise<void>, failDump: (fails: boolean) => Promise<void>, errorDump: (fails: boolean) => Promise<void>}>} the harness.
  */
 async function fakeAdb(options = {}) {
@@ -92,6 +94,9 @@ async function fakeAdb(options = {}) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'aemh-ui-data-'))
   const state = (name) => path.join(stateDir, name)
   await writeFile(state('screen.xml'), options.screen ?? '', 'utf8')
+  // `android_ui_status` probes the device-side binary, so the answer is a file:
+  // a marker means "this device does not ship uiautomator".
+  if (options.uiAutomator === false) await writeFile(state('no-uiautomator'), '', 'utf8')
   // `adb devices -l` is served from files so a test can present any device
   // state, and can change it when a start actually happens.
   await writeFile(state('devices.txt'), options.devices ?? READY_DEVICES, 'utf8')
@@ -179,6 +184,25 @@ async function fakeAdb(options = {}) {
           ifRest: { pattern: 'rm -f /sdcard/.dsh-ui-*' },
           then: [{ write: [state('last-dump.txt'), ''] }, { exit: 0 }],
         },
+        {
+          // `android_ui_status` asks the device for its UI automation binary.
+          // The marker file models a device that does not ship one.
+          ifRest: { pattern: 'which uiautomator' },
+          then: [
+            { ifFile: state('no-uiautomator'), then: [{ exit: 1 }] },
+            { out: '/system/bin/uiautomator' },
+            { exit: 0 },
+          ],
+        },
+        {
+          // The POSIX fallback the provider probes when `which` found nothing.
+          ifRest: { pattern: 'command -v uiautomator' },
+          then: [
+            { ifFile: state('no-uiautomator'), then: [{ exit: 1 }] },
+            { out: '/system/bin/uiautomator' },
+            { exit: 0 },
+          ],
+        },
         { ifRest: { pattern: 'input*' }, then: [{ append: [state('input.log'), '${REST}\n'] }, { exit: 0 }] },
         { exit: 0 },
       ],
@@ -237,6 +261,34 @@ async function fakeAdb(options = {}) {
       else await rm(path.join(stateDir, 'dump-errors'), { force: true })
     },
   }
+}
+
+/**
+ * A runtime whose environment cannot resolve an `adb` at all.
+ *
+ * `sdkPath` points at an empty directory, so the SDK probe finds nothing, and
+ * `PATH` is reduced to that same empty directory, so the platform's own
+ * `which`/`where` answer nothing either. `android_ui_status` must report the
+ * missing tool instead of throwing; the caller then asks the caller to fix the
+ * SDK rather than mis-reading the failure as "no device".
+ *
+ * The one thing this cannot switch off is the plugin's last-resort SDK scan: on
+ * a machine that has an SDK installed the scan still finds its `adb`, which is
+ * the right behaviour for the plugin and the reason the test checks for it
+ * before asserting.
+ *
+ * @returns {Promise<object>} the runtime.
+ */
+async function adbLessRuntime() {
+  const empty = await mkdtemp(path.join(tmpdir(), 'aemh-ui-noadb-'))
+  return createRuntime({
+    config: {
+      dataDir: { get: () => path.join(empty, 'data') },
+      sdkPath: { get: () => empty },
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    env: { PATH: empty },
+  })
 }
 
 /** Build one UI Automator `<node>` tag from the attributes that matter here. */
@@ -331,6 +383,40 @@ test('XML entities in text and attributes are decoded', () => {
   assert.equal(element.contentDescription, "it's")
 })
 
+test('numeric character references decode, and &amp; still decodes last', () => {
+  // UI Automator's serializer writes a multi-line attribute as `&#10;`, so a
+  // decoder that only knew the five named entities handed callers the literal
+  // text `line one&#10;line two`.
+  const [element] = parseUiAutomator(
+    node({
+      text: 'line one&#10;line two&#13;done',
+      'content-desc': '&#x4E2D;&#x6587; &#38; &#x2603;',
+      bounds: '[0,0][2,2]',
+    }),
+  )
+  assert.equal(element.text, 'line one\nline two\rdone')
+  assert.equal(element.contentDescription, '中文 & ☃')
+  // Decimal and hexadecimal spellings of the same character decode alike.
+  const [caseTest] = parseUiAutomator(node({ text: '&#65;&#x41;&#x4e2d;' }))
+  assert.equal(caseTest.text, 'AA中')
+})
+
+test('an unusable character reference stays literal instead of being mangled', () => {
+  const [element] = parseUiAutomator(
+    node({ text: '&#x110000; &#xD800; &#0; &#99999999999999999999; &#xZZ;', bounds: '[0,0][2,2]' }),
+  )
+  // Out of range, a surrogate, NUL, and a non-hex spelling are all left as
+  // written: a replacement character would hide a malformed dump.
+  assert.equal(element.text, '&#x110000; &#xD800; &#0; &#99999999999999999999; &#xZZ;')
+})
+
+test('a double-encoded reference decodes to literal text because &amp; runs last', () => {
+  const [element] = parseUiAutomator(node({ text: '&amp;#10; &amp;lt;tag&amp;gt;', bounds: '[0,0][2,2]' }))
+  // `&amp;#10;` is the literal text `&#10;`, not a newline; decoding `&amp;`
+  // before the numeric pass would have produced a newline instead.
+  assert.equal(element.text, '&#10; &lt;tag&gt;')
+})
+
 test('input text escapes spaces only, and refuses over-long text', () => {
   assert.equal(inputText('hello world'), 'hello%sworld')
   // `input text` is a small custom parser, not a URL decoder: the only escape it
@@ -369,7 +455,7 @@ test('key mapping covers exactly the six documented keys', () => {
   })
 })
 
-test('the UI backend reports the adb it will use', async () => {
+test('the UI backend reports the adb and the device-side uiautomator it found', async () => {
   const { rt } = await fakeAdb()
   const report = await status(rt)
   assert.equal(report.available, true)
@@ -377,7 +463,53 @@ test('the UI backend reports the adb it will use', async () => {
   // The reported path is the fake on this host: `adb` on POSIX, and the
   // launcher the plugin can actually start on Windows.
   assert.match(report.adb, /[\\/]adb(\.cmd|\.bat)?$/)
+  // `available` is no longer `Boolean(adb)`: the fake answered the device-side
+  // probe, so the report says so.
+  assert.equal(report.uiAutomator, true)
+  assert.equal(report.adbInput, true)
   assert.deepEqual(report.implementedBackends, ['uiautomator', 'adb-input'])
+})
+
+test('the UI backend reports no backend when no device is ready', async () => {
+  const { rt } = await fakeAdb({ devices: ['List of devices attached', ''].join('\n') })
+  const report = await status(rt)
+  // adb is present, but a host-only answer cannot claim device automation.
+  assert.match(report.adb, /[\\/]adb(\.cmd|\.bat)?$/)
+  assert.equal(report.available, false)
+  assert.equal(report.uiAutomator, false)
+  assert.equal(report.adbInput, false)
+  assert.deepEqual(report.implementedBackends, [])
+  assert.match(report.reason, /No ready Android device/)
+})
+
+test('the UI backend reports a device without uiautomator instead of claiming it works', async () => {
+  const { rt } = await fakeAdb({ uiAutomator: false })
+  const report = await status(rt)
+  assert.equal(report.available, false)
+  assert.equal(report.uiAutomator, false)
+  // Plain adb input is still there; only the dump-based tools are missing.
+  assert.equal(report.adbInput, true)
+  assert.deepEqual(report.implementedBackends, ['adb-input'])
+  assert.match(report.reason, /uiautomator/)
+  assert.match(report.reason, /android_ui_describe/)
+})
+
+test('the UI backend reports a missing adb rather than a device backend', async (t) => {
+  const rt = await adbLessRuntime()
+  const found = await findTool(rt, 'adb')
+  if (found !== undefined) {
+    // The last-resort SDK scan can still find the machine's own adb; that is
+    // correct plugin behaviour and makes this branch unobservable here.
+    t.skip(`this machine still resolves an SDK adb at ${found}`)
+    return
+  }
+  const report = await status(rt)
+  assert.equal(report.adb, undefined)
+  assert.equal(report.available, false)
+  assert.equal(report.uiAutomator, false)
+  assert.equal(report.adbInput, false)
+  assert.deepEqual(report.implementedBackends, [])
+  assert.match(report.reason, /adb is not installed/)
 })
 
 test('describe dumps to a path of its own, reads it back, and removes it', async () => {
@@ -553,13 +685,23 @@ test('swipe accepts reversed and zero-distance gestures', async () => {
 
 test('type text sends the escaped value to adb', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
-  const report = await typeText(rt, { text: 'a b%c', serial: 'emulator-5554' })
-  assert.equal(
-    (await argv()).find((line) => line.includes('[input text')),
-    'ARGV [-s] [emulator-5554] [shell] [input text a%sb%c]',
+  const report = await typeText(rt, { text: 'a b', serial: 'emulator-5554' })
+  const percent = await typeText(rt, { text: '100%', serial: 'emulator-5554' })
+  // A space becomes `%s` and a literal percent passes through untouched. The
+  // two are separate calls on purpose: a token whose percent signs form a
+  // `%NAME%` pair is refused by the batch-file quoting in `lib/util/run.js`,
+  // because cmd.exe would expand it — the old `a b%c` fixture escaped to
+  // `a%sb%c`, which cmd.exe reads as the variable `%sb%`.
+  assert.deepEqual(
+    (await argv()).filter((line) => line.includes('[input text')),
+    [
+      'ARGV [-s] [emulator-5554] [shell] [input text a%sb]',
+      'ARGV [-s] [emulator-5554] [shell] [input text 100%]',
+    ],
   )
   // `length` counts the caller's characters, not the escaped ones.
-  assert.deepEqual(report, { typed: true, serial: 'emulator-5554', length: 5 })
+  assert.deepEqual(report, { typed: true, serial: 'emulator-5554', length: 3 })
+  assert.equal(percent.length, 4)
 })
 
 test('type text quotes shell metacharacters and single quotes', async () => {
