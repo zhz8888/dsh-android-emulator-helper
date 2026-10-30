@@ -3,7 +3,9 @@ import { test } from 'node:test'
 import { execFile } from 'node:child_process'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { ROOT } from './helpers/load-bundle.mjs'
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { ROOT, loadBundle } from './helpers/load-bundle.mjs'
 
 /**
  * Render the plugin's Plugins-page configuration form with real React.
@@ -185,4 +187,170 @@ test('no unresolved dictionary key leaks into the markup', () => {
   // a typo in one of the generated keys would look like.
   assert.ok(!/field\.[A-Za-z]+/.test(report.markup), 'an unresolved field key leaked into the markup')
   assert.ok(!/group\.[A-Za-z]+/.test(report.markup), 'an unresolved group key leaked into the markup')
+})
+
+/**
+ * The two states the markup assertions above cannot see.
+ *
+ * `render-page.mjs` doubles the primitives faithfully, which is what a page has
+ * to render against. These mounts need the opposite: a shared model carrying only
+ * the documented API (the shipped class keeps its helpers private), and a model
+ * that cannot be built at all.
+ */
+
+/** The shared form scope the page binds to; the client reads only its public snapshot. */
+function fakeScope() {
+  const snapshot = { status: 'ready', value: {}, base: {}, user: {}, writable: true, revision: 1 }
+  return { getSnapshot: () => snapshot, subscribe: () => () => {}, mutate: async () => true }
+}
+
+/**
+ * A `SettingsFormModel` carrying only the documented API.
+ *
+ * The shipped class declares `stored` and `sectionValue` private, so this double
+ * is what a primitives release that renamed them would look like — and the page
+ * used to read them anyway, through an `unknown` assertion the type gate cannot
+ * follow.
+ */
+class PublicOnlyModel {
+  constructor(scope, specs) {
+    this.scope = scope
+    this.specs = specs
+  }
+
+  bind(project) {
+    const snapshot = project()
+    return { getSnapshot: () => snapshot, subscribe: () => () => {} }
+  }
+
+  shell() {
+    return { available: true, writable: true, dirty: false, invalid: false, saving: false, failed: false }
+  }
+
+  field(key) {
+    void key
+    return { text: '', overridden: false, invalid: false }
+  }
+
+  actions() {
+    return { edit: () => {}, resetField: () => {}, save: () => {}, discard: () => {} }
+  }
+
+  dispose() {}
+}
+
+/** A primitives module whose shared model cannot be constructed at all. */
+class ThrowingModel {
+  constructor() {
+    throw new Error('the shared model changed')
+  }
+}
+
+/** The text-field spec the client's `text` kind asks the primitives for. */
+function settingsTextField(field) {
+  return {
+    field,
+    format: (value) => (typeof value === 'string' ? value : ''),
+    parse: (text) => (text.trim() === '' ? { kind: 'clear' } : { kind: 'set', value: text.trim() }),
+  }
+}
+
+/**
+ * Mount the real `apply` over a browser context that records its registration.
+ *
+ * Every service is the minimum the half touches; the shared model comes from
+ * `primitives`, which is what the test varies.
+ */
+function mountWith(primitives) {
+  const record = { entry: undefined, component: undefined, warnings: [], applyError: undefined }
+  const { exported } = loadBundle({
+    resolve: (specifier) => {
+      if (specifier === 'react') return React
+      if (specifier === '@deepseek-ai/dsh-client-ui-primitives') return primitives
+      throw new Error('unexpected require: ' + specifier)
+    },
+  })
+  const ctx = {
+    configForms: {
+      get: () => fakeScope(),
+      whileServed: (namespaces, register) => {
+        const disposer = register(new Set(namespaces))
+        return typeof disposer === 'function' ? disposer : () => {}
+      },
+    },
+    locale: { register: () => () => {} },
+    slots: {
+      inject: (name, callback) => {
+        void name
+        return callback()
+      },
+      register: (entry, component) => {
+        record.entry = entry
+        record.component = component
+        return () => {}
+      },
+    },
+    effect: (callback) => {
+      const disposer = callback()
+      return () => {
+        if (typeof disposer === 'function') disposer()
+      }
+    },
+    logger: { warn: (message) => record.warnings.push(message) },
+  }
+  try {
+    exported.apply(ctx)
+  } catch (error) {
+    record.applyError = error
+  }
+  return record
+}
+
+test('the override state comes from the public snapshot, not the model internals', () => {
+  // `stored`/`sectionValue` are private: the type gate cannot see a call to them
+  // (the old code asserted the model into a local shape) and a primitives release
+  // may rename them. A model without them must still produce a working page.
+  const record = mountWith({ SettingsFormModel: PublicOnlyModel, settingsTextField })
+  assert.equal(record.applyError, undefined, 'apply must survive a model with only the public API')
+  assert.ok(record.component !== undefined, 'the page must still be registered')
+  const face = record.entry.inject()
+  assert.deepEqual(Object.keys(face).sort(), [
+    'discard',
+    'edit',
+    'hooks',
+    'loadInventory',
+    'loadStatus',
+    'resetField',
+    'save',
+  ])
+  const projection = face.hooks.androidEmulatorSettings.getSnapshot()
+  assert.equal(Object.keys(projection.fields).length, 17, 'the projection carries every declared field')
+})
+
+test('a model that cannot be built leaves a readable page instead of no page', () => {
+  // The constructor takes the first projection, so it is the one step a
+  // primitives release can break. Failing it must not take the client half — and
+  // with it the whole plugin page — down.
+  const record = mountWith({ SettingsFormModel: ThrowingModel })
+  assert.equal(record.applyError, undefined, 'apply must not throw when the shared model cannot be built')
+  assert.equal(record.warnings.length, 1, 'the failure is logged')
+  assert.ok(record.component !== undefined, 'a page must still be registered')
+  assert.deepEqual(Object.keys(record.entry.inject()), ['hooks'], 'the failed page injects no form face')
+  const t = (key) => (key === 'formFailed' ? 'FORM FAILED' : key)
+  const markup = renderToStaticMarkup(React.createElement(record.component, { t, view: 'page' }))
+  assert.match(markup, /FORM FAILED/, 'the page says the form could not be loaded')
+})
+
+test('the save confirmation only flashes for a write this page saw land', () => {
+  // `savedCount` is cumulative for the controller's life while the toast lives
+  // with the page, so a page mounted after an earlier save must not repeat that
+  // save's confirmation; only growth is a write to announce.
+  const { exported } = loadBundle()
+  const flash = exported.SAVED_TOAST_TICK
+  assert.equal(typeof flash, 'function', 'the bundle must export the toast rule')
+  assert.equal(flash(1, 1), 0, 'mounting after a save is not a new save')
+  assert.equal(flash(3, 3), 0)
+  assert.equal(flash(0, 1), 1, 'the first write lands')
+  assert.equal(flash(1, 2), 2, 'a write that lands while the page is open flashes')
+  assert.equal(flash(2, 1), 0, 'a counter that went backwards flashes nothing')
 })

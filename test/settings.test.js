@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { Config, FIELD_KEYS, readSettings, systemImagePackage } from '../lib/settings.js'
+import { Config, FIELD_KEYS, FIELDS, readSettings, systemImagePackage } from '../lib/settings.js'
+import { splitArgumentLines } from '../lib/util/run.js'
 
 /**
  * Settings projection tests.
@@ -101,4 +102,22 @@ test('an empty ABI picks the host architecture', () => {
     systemImagePackage({ apiLevel: '34', systemImageVariant: 'default', systemImageAbi: '' }),
     `system-images;android-34;default;${expected}`,
   )
+})
+
+test('the emulator-arguments example is one argv token per line', () => {
+  // `emulatorArgs` is a line-per-token grammar: everything after the first
+  // non-space character of a line is ONE argv element, so an example that puts an
+  // option and its value on one line tells the user to write a call the emulator
+  // rejects as an unknown option. Pin the example against the real parser.
+  const field = FIELDS.get('emulatorArgs')
+  if (field === undefined) throw new Error('emulatorArgs is not declared')
+  const placeholder = field.placeholder ?? ''
+  const lines = placeholder.split(/\r?\n/).filter((line) => line.trim().length > 0)
+  assert.ok(lines.length > 1, 'the example must show more than one line')
+  assert.deepEqual(splitArgumentLines(placeholder), lines.map((line) => line.trim()))
+  for (const token of lines) {
+    assert.ok(!/\s/.test(token.trim()), 'one argv token per line, got ' + JSON.stringify(token))
+  }
+  assert.match(field.hint?.zh ?? '', /每行一个参数/)
+  assert.match(field.hint?.en ?? '', /^One argument per line/)
 })
