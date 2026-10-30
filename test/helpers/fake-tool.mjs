@@ -446,6 +446,35 @@ function renderPowerShellSteps(steps) {
 }
 
 /**
+ * Refuse a fake whose steps are not step objects.
+ *
+ * Both renderers walk `steps` with `for…of` and branch on `step.<field>`, so a
+ * value of the wrong type is not an error anywhere: a string is walked one
+ * character at a time, every branch is false, and the written fake is a script
+ * that does nothing and exits 0. An assertion that expects the tool to have
+ * answered then passes for the worst possible reason — the fake silently never
+ * ran. The old shell-string form of this helper is exactly how that happens, so
+ * it is rejected at the door instead.
+ *
+ * @param {unknown} steps - the value the caller passed.
+ * @param {string} where - the step path, for the message.
+ * @returns {void} throws when the value is not a step list.
+ */
+function assertSteps(steps, where = 'steps') {
+  if (!Array.isArray(steps)) {
+    throw new TypeError(
+      `${where} must be an array of step objects (fake-tool.mjs renders steps, not shell strings); got ${steps === null ? 'null' : typeof steps}`,
+    )
+  }
+  steps.forEach((step, index) => {
+    if (typeof step !== 'object' || step === null || Array.isArray(step)) {
+      throw new TypeError(`${where}[${index}] must be a step object; got ${step === null ? 'null' : typeof step}`)
+    }
+    if (step.then !== undefined) assertSteps(step.then, `${where}[${index}].then`)
+  })
+}
+
+/**
  * Write a fake tool into a directory, in the flavour this host can run.
  *
  * On POSIX the fake is an executable shell script named after the tool. On
@@ -463,6 +492,7 @@ function renderPowerShellSteps(steps) {
  * @returns {Promise<void>} resolves when the fake is on disk.
  */
 export async function writeFakeTool(dir, name, steps, options = {}) {
+  assertSteps(steps)
   if (process.platform === 'win32') {
     const extension = options.launcher ?? 'cmd'
     await writeFile(path.join(dir, `${name}.ps1`), renderPowerShell(steps), 'utf8')

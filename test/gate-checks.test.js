@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import * as gate from '../scripts/check-bundle.mjs'
-import { readFileSync } from 'node:fs'
+import { SETTINGS_NAMESPACE } from '../lib/settings.js'
+
+/** The repository under test, so a copy can be laid out the way the gate reads it. */
+const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
  * Consistency-gate unit tests.
@@ -323,4 +332,143 @@ test('G-4: an option filed under the wrong key is reported', () => {
   })
   assert.ok(failures.length > 0, 'the encoded key is the one the page looks up')
   assert.match(failures.join('\n'), /option\.v\.aosp/)
+})
+
+// ---------------------------------------------------------------------------
+// The gate's wiring
+//
+// The checks above are pure functions, so they stay green whether or not
+// `main()` still calls them. The OK line the gate prints is a fixed summary
+// string, so a gate that lost a `failures.push(...)` call — the exact drift the
+// old subprocess test claimed to catch — kept passing every test in this file.
+// The two tests below close that: one reads main()'s own body and requires every
+// exported check to be called from it, and the other runs the gate against a
+// *copy* of the repository with one known drift, which only a wired-up main()
+// can report.
+// ---------------------------------------------------------------------------
+
+/** The names the gate exports as checks, in the order they were written. */
+const GATE_CHECK_NAMES = [
+  'checkRegistrationUsesSurface',
+  'checkNoSettingsSection',
+  'checkFieldKinds',
+  'checkKindsAreRendered',
+  'checkSuggestSources',
+  'checkDictionarySymmetry',
+  'checkOptionLabels',
+  'checkOptionLabelLookup',
+]
+
+test('main() calls every check the gate declares', () => {
+  const source = readFileSync(path.join(REPO, 'scripts', 'check-bundle.mjs'), 'utf8')
+  const mainStart = source.indexOf('function main()')
+  const mainEnd = source.indexOf('// Only when this file is the entry point')
+  assert.notEqual(mainStart, -1, 'scripts/check-bundle.mjs must define main()')
+  assert.notEqual(mainEnd, -1, 'the entry-point guard must stay after main()')
+  const body = source.slice(mainStart, mainEnd)
+  for (const name of GATE_CHECK_NAMES) {
+    assert.equal(typeof gate[name], 'function', `scripts/check-bundle.mjs must export ${name}`)
+    // Read main()'s body, not the whole file: the definition alone would match a
+    // deleted call site, which is exactly what this is guarding.
+    assert.match(body, new RegExp(`${name}\\(`), `main() must call ${name}() — an unwired check is a check the gate lost`)
+  }
+})
+
+/**
+ * Lay out the files the gate reads in a fresh directory.
+ *
+ * Only the files `main()` opens are copied — the package manifest, the patch
+ * row, `lib/` (the bundle and the holder of the namespace), `locale/`, the
+ * bundle loader and the gate itself; `node_modules` is linked rather than
+ * copied because the host's peers are what the imported modules resolve
+ * against. The layout is the point: `load-bundle.mjs` derives the repository
+ * root from its own location, so a copy runs the gate against the copy.
+ *
+ * @param {string} directory - the directory to build the copy in.
+ * @returns {string} the copy's root.
+ */
+function copyGateTree(directory) {
+  const copy = path.join(directory, 'repo')
+  mkdirSync(path.join(copy, 'test', 'helpers'), { recursive: true })
+  mkdirSync(path.join(copy, 'scripts'), { recursive: true })
+  for (const entry of ['package.json', 'cordis.patch.yml', 'locale', 'lib']) {
+    cpSync(path.join(REPO, entry), path.join(copy, entry), { recursive: true })
+  }
+  cpSync(path.join(REPO, 'test', 'helpers', 'load-bundle.mjs'), path.join(copy, 'test', 'helpers', 'load-bundle.mjs'))
+  cpSync(path.join(REPO, 'scripts', 'check-bundle.mjs'), path.join(copy, 'scripts', 'check-bundle.mjs'))
+  // A Windows junction needs no SeCreateSymbolicLinkPrivilege, which a stock
+  // host does not grant; POSIX gets a plain directory symlink.
+  symlinkSync(path.join(REPO, 'node_modules'), path.join(copy, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+  return copy
+}
+
+/**
+ * Run one copy's gate and report what it answered.
+ *
+ * @param {string} copy - the copy's root.
+ * @returns {Promise<{code: number, stdout: string, stderr: string}>} the outcome.
+ */
+async function runGate(copy) {
+  try {
+    const { stdout, stderr } = await promisify(execFile)(process.execPath, [path.join(copy, 'scripts', 'check-bundle.mjs')], {
+      cwd: copy,
+    })
+    return { code: 0, stdout: String(stdout), stderr: String(stderr) }
+  } catch (error) {
+    return { code: typeof error?.code === 'number' ? error.code : 1, stdout: String(error?.stdout ?? ''), stderr: String(error?.stderr ?? '') }
+  }
+}
+
+test('the gate exits non-zero on a copy of the repository with one known drift', async (t) => {
+  // The control run matters as much as the drift: a copy that cannot pass would
+  // make the second assertion meaningless, so a broken fixture fails here
+  // instead of silently proving nothing.
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'aemh-gate-copy-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const copy = copyGateTree(directory)
+
+  const clean = await runGate(copy)
+  assert.equal(clean.code, 0, `the untouched copy must pass the gate:\n${clean.stderr}`)
+  assert.match(clean.stdout, /check-bundle: OK/)
+
+  // Drift 1: the patch row that carries the settings namespace. `main()` reads
+  // this file; none of the pure checks do, so only a wired-up main() reports it.
+  // The replacement is a different id rather than an appended suffix: the gate
+  // looks for the id as a substring, so `android-emulator-helper-drifted` would
+  // still satisfy it.
+  const patchFile = path.join(copy, 'cordis.patch.yml')
+  const patch = readFileSync(patchFile, 'utf8')
+  const drifted = patch.replace(`id: ${SETTINGS_NAMESPACE}`, 'id: drifted-helper-row')
+  assert.notEqual(drifted, patch, 'the drift must actually change the patch row')
+  writeFileSync(patchFile, drifted)
+  const namespaceDrift = await runGate(copy)
+  assert.notEqual(namespaceDrift.code, 0, 'a patch row whose id is wrong must fail the gate')
+  assert.match(namespaceDrift.stderr, /cordis\.patch\.yml must mount a row whose id is/)
+
+  // Drift 2: a locale entry the plugin list reads. This check sits late in
+  // main(), after the field, dictionary and group comparisons, so it proves the
+  // gate did not stop at the first group of checks.
+  const zhFile = path.join(copy, 'locale', 'zh.json')
+  const zh = JSON.parse(readFileSync(zhFile, 'utf8'))
+  delete zh.meta.description
+  writeFileSync(zhFile, JSON.stringify(zh, null, 2))
+  const localeDrift = await runGate(copy)
+  assert.notEqual(localeDrift.code, 0, 'a locale file without meta.description must fail the gate')
+  assert.match(localeDrift.stderr, /locale\/zh\.json must declare meta\.description/)
+})
+
+test('the mounted gate is the same one verify-mount uses to prove the tool surface', async () => {
+  // `pnpm run check` runs the mount after the consistency gate; if verify-mount
+  // is broken on this host, `pnpm test` says so before `pnpm run check` does.
+  // The output is asserted rather than only the exit code: the two set checks are
+  // what turn "23 tools" into "every registered tool dispatched, and every
+  // dispatched name registered", which is what the old 18-tool check lacked.
+  const { stdout } = await promisify(execFile)(process.execPath, [path.join(REPO, 'scripts', 'verify-mount.mjs')], {
+    cwd: REPO,
+    timeout: 120_000,
+  })
+  assert.match(stdout, /^ok\s+every tool this gate dispatches is registered/m)
+  assert.match(stdout, /^ok\s+this gate dispatches every registered android_\* tool/m)
+  assert.doesNotMatch(stdout, /^FAIL\s/m)
+  assert.match(stdout, /verify-mount: OK/)
 })

@@ -127,17 +127,61 @@ const signal = new AbortController().signal
 
 // The registry validates each body's value against its declared result schema,
 // which is how a mismatch between a provider's shape and a tool's schema is
-// caught. These five need neither a device nor a project, so they run always:
-// each one must reach its provider, come back without an isError, and render as
-// model-visible JSON.
+// caught. These four need neither a device, an SDK nor a project, so they run
+// always: each one must reach its provider, come back without an isError, and
+// render as model-visible JSON.
+//
+// `android_list_devices` is deliberately *not* here. It resolves `adb` before it
+// answers, so on a host with no Android SDK it fails inside its provider — and a
+// gate that demands it succeed is a gate that only passes on machines with
+// Android installed, which is the opposite of hermetic. It is dispatched with the
+// device-backed tools below instead, where a provider-level failure is the
+// expected outcome.
+const ALWAYS = ['android_preflight', 'android_list_avds', 'android_discover_project', 'android_ui_status']
+
+// Every remaining tool must at least survive the registry's argument validation
+// and its result schema. Without a device they are expected to fail *inside*
+// their provider (no ready target), which still proves the wiring: a schema or
+// renderer mismatch would surface as a different, distinctive error. Passing a
+// serial that cannot exist keeps the run deterministic and stops it touching a
+// real device; the explicit timeouts keep a poll loop from stalling the gate.
+const ABSENT = 'emulator-__none__'
+const DEVICE_TOOLS = [
+  ['android_list_devices', {}],
+  ['android_start_emulator', { avd: '__verify_mount_no_such_avd__', timeoutMs: 5_000 }],
+  ['android_stop_emulator', { serial: ABSENT }],
+  ['android_create_avd', { name: '__verify_mount_no_such_avd__', packageId: 'system-images;android-99;default;arm64-v8a' }],
+  ['android_create_app', { name: 'VerifyMountProbe', dir: '.tmp-verify-mount', overwrite: true }],
+  ['android_build_app', { timeoutMs: 10_000 }],
+  ['android_build_and_run', { timeoutMs: 10_000 }],
+  ['android_install_app', { serial: ABSENT, apkPath: '/nonexistent/verify-mount.apk' }],
+  ['android_launch_app', { serial: ABSENT, applicationId: 'com.example.verify' }],
+  ['android_terminate_app', { serial: ABSENT, applicationId: 'com.example.verify' }],
+  ['android_open_url', { serial: ABSENT, url: 'https://example.com' }],
+  ['android_screenshot', { serial: ABSENT }],
+  ['android_logs', { serial: ABSENT }],
+  ['android_ui_describe', { serial: ABSENT, timeoutMs: 5_000 }],
+  ['android_ui_resolve', { serial: ABSENT, query: 'Settings', timeoutMs: 5_000 }],
+  ['android_ui_tap', { serial: ABSENT, x: 1, y: 1, timeoutMs: 5_000 }],
+  ['android_ui_swipe', { serial: ABSENT, x1: 1, y1: 1, x2: 2, y2: 2, timeoutMs: 5_000 }],
+  ['android_ui_type_text', { serial: ABSENT, text: 'x', timeoutMs: 5_000 }],
+  ['android_ui_keyevent', { serial: ABSENT, key: 'BACK', timeoutMs: 5_000 }],
+]
+
+// Every name this gate dispatches has to be a tool the registry publishes, and
+// every published tool has to be dispatched. `tools.execute` answers an unknown
+// name with the registry's own error rather than a provider's, so a renamed or
+// dropped tool would otherwise be read as "reached the provider" — the failure
+// mode this check exists to close. Comparing the two sets is what makes the
+// "all 23 tools dispatched" claim a fact instead of a count.
+const dispatched = [...ALWAYS, ...DEVICE_TOOLS.map(([name]) => name)]
+const unregistered = dispatched.filter((name) => tools.get(name) === undefined)
+check('every tool this gate dispatches is registered', unregistered.length === 0, unregistered)
+const undispatched = visible.filter((name) => !dispatched.includes(name))
+check('this gate dispatches every registered android_* tool', undispatched.length === 0, undispatched)
+
 let call = 0
-for (const name of [
-  'android_preflight',
-  'android_list_avds',
-  'android_list_devices',
-  'android_discover_project',
-  'android_ui_status',
-]) {
+for (const name of ALWAYS) {
   const result = await tools.execute({ name, arguments: {}, callId: `verify-${++call}`, signal })
   check(`${name} dispatched through the real registry`, result.isError !== true, result.error?.message?.slice(0, 90))
   const payload = result.content?.find((block) => block.type === 'text')?.text ?? ''
@@ -160,47 +204,21 @@ try {
 }
 check('android_list_avds lists the pinned AVD directory', avdNames.includes('VerifyMount'), avdNames)
 
-// Every remaining tool must at least survive the registry's argument validation
-// and its result schema. Without a device they are expected to fail *inside*
-// their provider (no ready target), which still proves the wiring: a schema or
-// renderer mismatch would surface as a different, distinctive error. Passing a
-// serial that cannot exist keeps the run deterministic and stops it touching a
-// real device; the explicit timeouts keep a poll loop from stalling the gate.
-const ABSENT = 'emulator-__none__'
-const DEVICE_TOOLS = [
-  ['android_start_emulator', { avd: '__verify_mount_no_such_avd__', timeoutMs: 5_000 }],
-  ['android_stop_emulator', { serial: ABSENT }],
-  ['android_create_avd', { name: '__verify_mount_no_such_avd__', packageId: 'system-images;android-99;default;arm64-v8a' }],
-  ['android_create_app', { name: 'VerifyMountProbe', dir: '.tmp-verify-mount', overwrite: true }],
-  ['android_build_app', { timeoutMs: 10_000 }],
-  ['android_build_and_run', { timeoutMs: 10_000 }],
-  ['android_install_app', { serial: ABSENT, apkPath: '/nonexistent/verify-mount.apk' }],
-  ['android_launch_app', { serial: ABSENT, applicationId: 'com.example.verify' }],
-  ['android_terminate_app', { serial: ABSENT, applicationId: 'com.example.verify' }],
-  ['android_open_url', { serial: ABSENT, url: 'https://example.com' }],
-  ['android_screenshot', { serial: ABSENT }],
-  ['android_logs', { serial: ABSENT }],
-  ['android_ui_describe', { serial: ABSENT, timeoutMs: 5_000 }],
-  ['android_ui_resolve', { serial: ABSENT, query: 'Settings', timeoutMs: 5_000 }],
-  ['android_ui_tap', { serial: ABSENT, x: 1, y: 1, timeoutMs: 5_000 }],
-  ['android_ui_swipe', { serial: ABSENT, x1: 1, y1: 1, x2: 2, y2: 2, timeoutMs: 5_000 }],
-  ['android_ui_type_text', { serial: ABSENT, text: 'x', timeoutMs: 5_000 }],
-  ['android_ui_keyevent', { serial: ABSENT, key: 'BACK', timeoutMs: 5_000 }],
-]
 for (const [name, args] of DEVICE_TOOLS) {
   const result = await tools.execute({ name, arguments: args, callId: `verify-${++call}`, signal })
-  // A provider-level refusal is the expected outcome; a registry-level schema
-  // rejection is not. The registry's result-schema error message is "returned
-  // invalid output", and an argument error is "invalid arguments"; both must
-  // fail this check instead of being read as "reached the provider".
+  // A provider-level refusal is the expected outcome; a registry-level rejection
+  // is not. The registry's result-schema error message is "returned invalid
+  // output", an argument error is "invalid arguments", and an unregistered name
+  // is "unknown tool" — all three must fail this check instead of being read as
+  // "reached the provider".
   const text = result.content?.find((block) => block.type === 'text')?.text ?? ''
-  const schemaRejection = /invalid arguments|invalid result|returned invalid output|INVALID_TOOL_OUTPUT/i.test(
-    result.error?.message ?? '',
-  )
+  const message = result.error?.message ?? ''
+  const schemaRejection = /invalid arguments|invalid result|returned invalid output|INVALID_TOOL_OUTPUT/i.test(message)
+  const unknownTool = /unknown tool|UNKNOWN_TOOL/i.test(message) || result.error?.code === 'UNKNOWN_TOOL'
   check(
-    `${name} reached its provider without a schema rejection`,
-    !schemaRejection,
-    `isError=${result.isError === true} ${(result.error?.message ?? text).slice(0, 80)}`,
+    `${name} reached its provider without a schema or unknown-tool rejection`,
+    !schemaRejection && !unknownTool,
+    `isError=${result.isError === true} ${(message === '' ? text : message).slice(0, 80)}`,
   )
 }
 

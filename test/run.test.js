@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import { test } from 'node:test'
 import { brief, callTimeoutMs, run, runBytes } from '../lib/util/run.js'
 
@@ -14,6 +16,36 @@ import { brief, callTimeoutMs, run, runBytes } from '../lib/util/run.js'
 const POSIX = process.platform !== 'win32'
 
 /**
+ * The PowerShell this host can actually start: `pwsh` when installed, else
+ * `powershell`.
+ *
+ * `pwsh` is PowerShell 7, which ships as a separate download; a stock Windows
+ * 10/11 install only carries `powershell.exe` in
+ * `System32\WindowsPowerShell\v1.0`. Naming `pwsh` unconditionally made every
+ * test that shells out fail with exit code 127 on those machines — a failure
+ * that says nothing about the code under test and looks unrelated to the cause.
+ * The probe is exported so the fallback can be pinned without a machine that
+ * lacks PowerShell 7, and `fake-tool.mjs` already resolves it the same way
+ * (`where pwsh` else `powershell`).
+ *
+ * @param {{platform?: NodeJS.Platform, env?: NodeJS.ProcessEnv, exists?: (candidate: string) => boolean}} [options]
+ *   - the host to probe; every field is injectable for the test below.
+ * @returns {'pwsh' | 'powershell' | undefined} the program, or undefined off Windows.
+ */
+export function powershellProgram({ platform = process.platform, env = process.env, exists = existsSync } = {}) {
+  if (platform !== 'win32') return undefined
+  const extensions = (env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';').filter((item) => item.length > 0)
+  for (const directory of (env.PATH ?? '').split(path.delimiter)) {
+    if (directory.length === 0) continue
+    for (const extension of extensions) {
+      if (exists(path.join(directory, `pwsh${extension}`))) return 'pwsh'
+    }
+    if (exists(path.join(directory, 'pwsh'))) return 'pwsh'
+  }
+  return 'powershell'
+}
+
+/**
  * The argv that runs `command` in this platform's shell.
  *
  * The two portable cases below only need a process that prints bytes and one
@@ -24,10 +56,42 @@ const POSIX = process.platform !== 'win32'
  * @returns {string[]} the argv.
  */
 function shell(command) {
-  return process.platform === 'win32'
-    ? ['pwsh', '-NoProfile', '-NonInteractive', '-Command', command]
-    : ['/bin/sh', '-c', command]
+  if (process.platform !== 'win32') return ['/bin/sh', '-c', command]
+  return [powershellProgram(), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command]
 }
+
+test('the Windows shell falls back to powershell.exe when PowerShell 7 is absent', () => {
+  // A stock Windows has `powershell.exe` and no `pwsh`: the probe must not
+  // depend on a program the host was never guaranteed to have.
+  const onlyWindowsPowerShell = (candidate) => candidate.toLowerCase().endsWith('powershell.exe')
+  assert.equal(
+    powershellProgram({
+      platform: 'win32',
+      env: { PATH: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0', PATHEXT: '.EXE;.CMD' },
+      exists: onlyWindowsPowerShell,
+    }),
+    'powershell',
+  )
+  const onlyPowerShell7 = (candidate) => candidate.toLowerCase().endsWith('pwsh.exe')
+  assert.equal(
+    powershellProgram({
+      platform: 'win32',
+      env: { PATH: 'C:\\Program Files\\PowerShell\\7', PATHEXT: '.EXE' },
+      exists: onlyPowerShell7,
+    }),
+    'pwsh',
+  )
+  // Off Windows the probe has no answer: the shell is `/bin/sh`.
+  assert.equal(powershellProgram({ platform: 'linux', env: { PATH: '/usr/bin' }, exists: () => true }), undefined)
+})
+
+test('the platform shell these tests use can actually start', async () => {
+  // This is the regression: with `pwsh` hardcoded, a stock Windows host failed
+  // here with exit code 127 — `could not be started` — before any assertion
+  // about the child-process helper ran.
+  const out = await run(shell('exit 0'), { timeout: 20_000 })
+  assert.equal(out.code, 0, `the shell this file uses must start: ${out.stderr}`)
+})
 
 /** A script that writes the eight PNG signature bytes on stdout. */
 const PRINT_PNG = POSIX
