@@ -11,11 +11,20 @@ import path from 'node:path'
  * there or was skipped.
  *
  * A fake is therefore described **once**, as a list of steps, and rendered
- * twice: as a POSIX shell script and as a PowerShell script. On Windows the
- * PowerShell script is what carries the behaviour, and a `.cmd` (or `.bat`)
- * launcher puts it on `PATH` next to the name the plugin looks for — `cmd.exe`
- * is the only thing Windows can start a script through, and the plugin already
- * routes a batch file through it.
+ * twice: a POSIX shell script on POSIX, and on Windows a Node step script
+ * behind a `.cmd` (or `.bat`) launcher. That launcher is the name the plugin
+ * resolves on `PATH`, and `cmd.exe` is the only thing Windows can start a
+ * script through; it starts the launcher, not the behaviour. The launcher
+ * names the absolute `process.execPath` the suite already runs on, so a
+ * Windows machine needs neither a PowerShell installation nor a `node` on
+ * `PATH`.
+ *
+ * Windows used to render a PowerShell script. It does not any more: the
+ * project's Windows rule is `pwsh` (PowerShell 7) first, `cmd.exe` as the final
+ * fallback and never the in-box Windows PowerShell 5.1 (`powershell.exe`). A
+ * fake needs no shell at all, so Node carries the behaviour and `cmd.exe` only
+ * starts the launcher — which keeps the suite runnable on a stock Windows that
+ * has never installed PowerShell 7.
  *
  * The step set is deliberately small: it covers what the fakes actually do —
  * record an argv, print something, branch on an argument or a file, write or
@@ -63,12 +72,6 @@ import path from 'node:path'
  * @property {FakeStep[]} [then] - the steps of a branch.
  */
 
-/** The name of the variable that holds the sub-command. */
-const SUB = 'SUB'
-
-/** The name of the variable that holds the command after the sub-command. */
-const REST = 'REST'
-
 /** Splits a text into literal parts and `${NAME}` references. */
 const VARIABLE = /\$\{(\w+)\}/g
 
@@ -80,16 +83,6 @@ const VARIABLE = /\$\{(\w+)\}/g
  */
 function shQuote(value) {
   return `'${String(value).replaceAll("'", `'\\''`)}'`
-}
-
-/**
- * Quote a value for PowerShell as a single-quoted string.
- *
- * @param {string} value - the value.
- * @returns {string} the quoted value.
- */
-function psQuote(value) {
-  return `'${String(value).replaceAll("'", "''")}'`
 }
 
 /**
@@ -135,20 +128,44 @@ function shWord(text) {
 }
 
 /**
- * Render a text as a PowerShell expression, expanding any variable references.
+ * Render a text as a JavaScript expression, expanding any variable references.
+ *
+ * The generated script defines `SUB`, `REST` and `A1`…`A6` from its own argv,
+ * and a `capture` step declares one more; a reference to any of them becomes
+ * the identifier itself.
  *
  * @param {string} text - the text.
  * @returns {string} the expression.
  */
-function psWord(text) {
+function jsWord(text) {
   /** @type {string[]} */
   const pieces = []
   for (const part of parts(text)) {
-    if ('variable' in part) pieces.push(`$${part.variable}`)
-    else if (part.literal.length > 0) pieces.push(psQuote(part.literal))
+    if ('variable' in part) pieces.push(part.variable)
+    else if (part.literal.length > 0) pieces.push(JSON.stringify(part.literal))
   }
   if (pieces.length === 0) return "''"
   return pieces.length === 1 ? (pieces[0] ?? "''") : `(${pieces.join(' + ')})`
+}
+
+/**
+ * Render a glob as a JavaScript `RegExp` expression.
+ *
+ * `*` and `?` are the only wildcards, as they are for the POSIX `case`
+ * rendering, and matching is case-sensitive for the same reason: the two
+ * renderings have to answer identically for the same command line.
+ *
+ * @param {string} pattern - the glob.
+ * @returns {string} a JavaScript expression that evaluates to the RegExp.
+ */
+function globExpression(pattern) {
+  let source = ''
+  for (const character of String(pattern)) {
+    if (character === '*') source += '.*'
+    else if (character === '?') source += '.'
+    else source += character.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  }
+  return `new RegExp(${JSON.stringify(`^${source}$`)})`
 }
 
 /**
@@ -309,137 +326,186 @@ function renderShellSteps(steps) {
 }
 
 /**
- * Render the steps as a PowerShell script.
+ * Render the steps as a Node script.
+ *
+ * This is the Windows rendering. The `.cmd`/`.bat` launcher starts it with the
+ * absolute `process.execPath` the suite itself is running under, so the fake
+ * needs no PowerShell installation and no `node` on `PATH`. The launcher is a
+ * batch file because that is the only kind of script Windows starts through
+ * `cmd.exe`; there is no PowerShell anywhere in the chain.
+ *
+ * Standard output is written with `process.stdout.write` and the generated
+ * program leaves through `process.exitCode`, so Node flushes every pending byte
+ * before it goes away — a raw PNG payload or a UTF-8 line is neither cut off
+ * nor re-encoded through a console code page.
  *
  * @param {FakeStep[]} steps - the fake's steps.
  * @returns {string} the script.
  */
-function renderPowerShell(steps) {
+function renderNode(steps) {
   const lines = [
-    '$ErrorActionPreference = "Stop"',
-    '$stdout = [Console]::OpenStandardOutput()',
-    '$stderr = [Console]::OpenStandardError()',
-    'function Write-Out([string]$text) { $bytes = [Text.Encoding]::UTF8.GetBytes($text); $stdout.Write($bytes, 0, $bytes.Length) }',
-    'function Write-Err([string]$text) { $bytes = [Text.Encoding]::UTF8.GetBytes($text); $stderr.Write($bytes, 0, $bytes.Length) }',
-    '$raw = @($args)',
-    '$sub = ""',
-    '$rest = ""',
-    'if ($raw.Count -gt 0 -and $raw[0] -eq "-s") { $sub = $raw[2]; $skip = 4 } else { $sub = $raw[0]; $skip = 2 }',
-    'for ($i = $skip - 1; $i -lt $raw.Count; $i++) { if ($i -ge 0) { if ($rest -eq "") { $rest = $raw[$i] } else { $rest = "$rest $($raw[$i])" } } }',
-    '$A1 = if ($raw.Count -gt 0) { $raw[0] } else { "" }',
-    '$A2 = if ($raw.Count -gt 1) { $raw[1] } else { "" }',
-    '$A3 = if ($raw.Count -gt 2) { $raw[2] } else { "" }',
-    '$A4 = if ($raw.Count -gt 3) { $raw[3] } else { "" }',
-    '$A5 = if ($raw.Count -gt 4) { $raw[4] } else { "" }',
-    '$A6 = if ($raw.Count -gt 5) { $raw[5] } else { "" }',
+    '#!/usr/bin/env node',
+    '// Generated by test/helpers/fake-tool.mjs from a list of steps.',
+    "import { appendFileSync, copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'",
+    '',
+    'const RAW = process.argv.slice(2)',
+    "const SUB = RAW[0] === '-s' ? (RAW[2] ?? '') : (RAW[0] ?? '')",
+    "const SKIP = RAW[0] === '-s' ? 4 : 2",
+    "const REST = RAW.slice(SKIP - 1).join(' ')",
+    "const A1 = RAW[0] ?? ''",
+    "const A2 = RAW[1] ?? ''",
+    "const A3 = RAW[2] ?? ''",
+    "const A4 = RAW[3] ?? ''",
+    "const A5 = RAW[4] ?? ''",
+    "const A6 = RAW[5] ?? ''",
+    '',
+    'async function main() {',
   ]
-  lines.push(...renderPowerShellSteps(steps))
+  for (const capture of captures(steps)) lines.push(`  let ${capture} = ''`)
+  lines.push(...renderNodeSteps(steps, 1))
+  lines.push('  return 0', '}', '', 'process.exitCode = await main()', '')
   return `${lines.join('\n')}\n`
 }
 
 /**
- * Render a list of steps as PowerShell lines.
+ * The names of every `ifRest` capture in a step tree, in first-seen order.
+ *
+ * A capture is script-scope in the other two renderings, so a value set in one
+ * branch stays readable by a later step. The generated script mirrors that with
+ * one `let` per capture at the top of `main`.
+ *
+ * @param {FakeStep[]} steps - the steps to walk.
+ * @returns {string[]} the capture names.
+ */
+function captures(steps) {
+  /** @type {string[]} */
+  const found = []
+  /** @param {FakeStep[]} list */
+  const walk = (list) => {
+    for (const step of list) {
+      const name = step.ifRest?.capture
+      if (name !== undefined && !found.includes(name)) found.push(name)
+      if (step.then !== undefined) walk(step.then)
+    }
+  }
+  walk(steps)
+  return found
+}
+
+/**
+ * Render a list of steps as Node lines inside `async function main`.
+ *
+ * `exit` becomes `return`, so pending writes are flushed by Node's normal
+ * shutdown instead of being truncated by `process.exit()`; `hang` keeps the
+ * event loop alive so the platform can terminate the process the same way the
+ * other renderings are terminated.
  *
  * @param {FakeStep[]} steps - the steps.
- * @returns {string[]} the PowerShell lines.
+ * @param {number} depth - the indentation depth inside `main`.
+ * @returns {string[]} the Node lines.
  */
-function renderPowerShellSteps(steps) {
+function renderNodeSteps(steps, depth) {
+  const indent = '  '.repeat(depth)
   /** @type {string[]} */
   const out = []
   for (const step of steps) {
     if (step.record !== undefined) {
-      out.push('$line = if ($raw.Count -eq 0) { "`n" } else { ($raw -join "|") + "|`n" }')
-      out.push(`$bytes = [Text.Encoding]::UTF8.GetBytes($line); $handle = [IO.File]::Open(${psQuote(step.record)}, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite); $handle.Write($bytes, 0, $bytes.Length); $handle.Dispose()`)
-    }
-    if (step.recordLines !== undefined) {
-      out.push('$text = (($raw -join "`n") + "`n")')
-      out.push(`$bytes = [Text.Encoding]::UTF8.GetBytes($text); [IO.File]::WriteAllBytes(${psQuote(step.recordLines)}, $bytes)`)
-    }
-    if (step.appendLines !== undefined) {
-      out.push('$line = ($raw -join "`n") + "`n"')
-      out.push(`$bytes = [Text.Encoding]::UTF8.GetBytes($line); $handle = [IO.File]::Open(${psQuote(step.appendLines)}, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite); $handle.Write($bytes, 0, $bytes.Length); $handle.Dispose()`)
-    }
-    if (step.out !== undefined) {
-      out.push(`Write-Out (([string]${psWord(step.out)}) + "\`n")`)
-    }
-    if (step.outRaw !== undefined) {
-      out.push(`Write-Out ([string]${psWord(step.outRaw)})`)
-    }
-    if (step.err !== undefined) {
-      out.push(`Write-Err (([string]${psWord(step.err)}) + "\`n")`)
-    }
-    if (step.outBytes !== undefined) {
-      const bytes = step.outBytes.map((byte) => String(byte)).join(',')
-      out.push(`$bytes = [byte[]]@(${bytes}); $stdout.Write($bytes, 0, $bytes.Length)`)
-    }
-    if (step.write !== undefined) {
-      out.push(`$bytes = [Text.Encoding]::UTF8.GetBytes([string]${psWord(step.write[1])}); [IO.File]::WriteAllBytes(${psQuote(step.write[0])}, $bytes)`)
-    }
-    if (step.append !== undefined) {
-      out.push(`$bytes = [Text.Encoding]::UTF8.GetBytes([string]${psWord(step.append[1])}); $handle = [IO.File]::Open(${psQuote(step.append[0])}, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite); $handle.Write($bytes, 0, $bytes.Length); $handle.Dispose()`)
-    }
-    if (step.copy !== undefined) {
-      out.push(`Copy-Item -LiteralPath ${psQuote(step.copy[0])} -Destination ${psQuote(step.copy[1])} -Force`)
-    }
-    if (step.cat !== undefined) {
-      out.push(`if (Test-Path -LiteralPath ${psQuote(step.cat)}) { Write-Out ([IO.File]::ReadAllText(${psQuote(step.cat)})) }`)
-    }
-    if (step.stdinTo !== undefined) {
       out.push(
-        `$reader = New-Object IO.StreamReader([Console]::OpenStandardInput()); [IO.File]::WriteAllText(${psQuote(step.stdinTo)}, $reader.ReadToEnd())`,
+        `${indent}appendFileSync(${JSON.stringify(step.record)}, RAW.length === 0 ? ${JSON.stringify('\n')} : RAW.join('|') + ${JSON.stringify('|\n')})`,
       )
     }
+    if (step.recordLines !== undefined) {
+      out.push(
+        `${indent}writeFileSync(${JSON.stringify(step.recordLines)}, RAW.join(${JSON.stringify('\n')}) + ${JSON.stringify('\n')})`,
+      )
+    }
+    if (step.appendLines !== undefined) {
+      out.push(
+        `${indent}appendFileSync(${JSON.stringify(step.appendLines)}, RAW.join(${JSON.stringify('\n')}) + ${JSON.stringify('\n')})`,
+      )
+    }
+    if (step.out !== undefined) {
+      out.push(`${indent}process.stdout.write(${jsWord(step.out)} + ${JSON.stringify('\n')})`)
+    }
+    if (step.outRaw !== undefined) {
+      out.push(`${indent}process.stdout.write(${jsWord(step.outRaw)})`)
+    }
+    if (step.err !== undefined) {
+      out.push(`${indent}process.stderr.write(${jsWord(step.err)} + ${JSON.stringify('\n')})`)
+    }
+    if (step.outBytes !== undefined) {
+      out.push(`${indent}process.stdout.write(Buffer.from([${step.outBytes.join(', ')}]))`)
+    }
+    if (step.write !== undefined) {
+      out.push(`${indent}writeFileSync(${JSON.stringify(step.write[0])}, ${jsWord(step.write[1])})`)
+    }
+    if (step.append !== undefined) {
+      out.push(`${indent}appendFileSync(${JSON.stringify(step.append[0])}, ${jsWord(step.append[1])})`)
+    }
+    if (step.copy !== undefined) {
+      out.push(`${indent}copyFileSync(${JSON.stringify(step.copy[0])}, ${JSON.stringify(step.copy[1])})`)
+    }
+    if (step.cat !== undefined) {
+      out.push(
+        `${indent}if (existsSync(${JSON.stringify(step.cat)})) process.stdout.write(readFileSync(${JSON.stringify(step.cat)}))`,
+      )
+    }
+    if (step.stdinTo !== undefined) {
+      out.push(`${indent}writeFileSync(${JSON.stringify(step.stdinTo)}, readFileSync(0))`)
+    }
     if (step.ifArg !== undefined) {
-      out.push(`if ($A${step.ifArg[0]} -eq [string]${psWord(step.ifArg[1])}) {`)
-      out.push(...renderPowerShellSteps(step.then ?? []))
-      out.push('}')
+      out.push(`${indent}if (A${step.ifArg[0]} === ${jsWord(step.ifArg[1])}) {`)
+      out.push(...renderNodeSteps(step.then ?? [], depth + 1))
+      out.push(`${indent}}`)
     }
     if (step.ifArgPrefix !== undefined) {
-      out.push(`if ($A${step.ifArgPrefix[0]} -like ${psQuote(`${step.ifArgPrefix[1]}*`)}) {`)
-      out.push(...renderPowerShellSteps(step.then ?? []))
-      out.push('}')
+      out.push(`${indent}if (${globExpression(`${step.ifArgPrefix[1]}*`)}.test(A${step.ifArgPrefix[0]})) {`)
+      out.push(...renderNodeSteps(step.then ?? [], depth + 1))
+      out.push(`${indent}}`)
     }
     if (step.ifSub !== undefined) {
-      out.push(`if ($sub -eq [string]${psWord(step.ifSub)}) {`)
-      out.push(...renderPowerShellSteps(step.then ?? []))
-      out.push('}')
+      out.push(`${indent}if (SUB === ${jsWord(step.ifSub)}) {`)
+      out.push(...renderNodeSteps(step.then ?? [], depth + 1))
+      out.push(`${indent}}`)
     }
     if (step.ifRest !== undefined) {
-      out.push(`if ($rest -like ${psQuote(step.ifRest.pattern)}) {`)
+      out.push(`${indent}if (${globExpression(step.ifRest.pattern)}.test(REST)) {`)
       if (step.ifRest.capture !== undefined) {
         const strip = step.ifRest.strip
         out.push(
-          strip !== undefined
-            ? `$${step.ifRest.capture} = if ($rest.StartsWith(${psQuote(strip)})) { $rest.Substring(${strip.length}) } else { $rest }`
-            : `$${step.ifRest.capture} = $rest`,
+          `${indent}  ${step.ifRest.capture} = ${
+            strip !== undefined
+              ? `REST.startsWith(${JSON.stringify(strip)}) ? REST.slice(${strip.length}) : REST`
+              : 'REST'
+          }`,
         )
       }
-      out.push(...renderPowerShellSteps(step.then ?? []))
-      out.push('}')
+      out.push(...renderNodeSteps(step.then ?? [], depth + 1))
+      out.push(`${indent}}`)
     }
     if (step.ifFile !== undefined) {
-      out.push(`if (Test-Path -LiteralPath ${psQuote(step.ifFile)}) {`)
-      out.push(...renderPowerShellSteps(step.then ?? []))
-      out.push('}')
+      out.push(`${indent}if (existsSync(${JSON.stringify(step.ifFile)})) {`)
+      out.push(...renderNodeSteps(step.then ?? [], depth + 1))
+      out.push(`${indent}}`)
     }
     if (step.ifContentEquals !== undefined) {
       out.push(
-        `if ((Test-Path -LiteralPath ${psQuote(step.ifContentEquals[0])}) -and ([IO.File]::ReadAllText(${psQuote(step.ifContentEquals[0])}) -eq [string]${psWord(step.ifContentEquals[1])})) {`,
+        `${indent}if (existsSync(${JSON.stringify(step.ifContentEquals[0])}) && readFileSync(${JSON.stringify(step.ifContentEquals[0])}, 'utf8') === ${jsWord(step.ifContentEquals[1])}) {`,
       )
-      out.push(...renderPowerShellSteps(step.then ?? []))
-      out.push('}')
+      out.push(...renderNodeSteps(step.then ?? [], depth + 1))
+      out.push(`${indent}}`)
     }
     if (step.sleep !== undefined) {
-      out.push(`Start-Sleep -Seconds ${step.sleep}`)
+      out.push(`${indent}await new Promise((resolve) => setTimeout(resolve, ${step.sleep * 1000}))`)
     }
     if (step.hang === true) {
-      out.push('while ($true) { Start-Sleep -Milliseconds 200 }')
+      out.push(`${indent}setInterval(() => {}, 1000)`, `${indent}await new Promise(() => {})`)
     }
     if (step.pidTo !== undefined) {
-      out.push(`[IO.File]::WriteAllText(${psQuote(step.pidTo)}, [string]$PID)`)
+      out.push(`${indent}writeFileSync(${JSON.stringify(step.pidTo)}, String(process.pid))`)
     }
     if (step.exit !== undefined) {
-      out.push(`exit ${step.exit}`)
+      out.push(`${indent}return ${step.exit}`)
     }
   }
   return out
@@ -478,9 +544,10 @@ function assertSteps(steps, where = 'steps') {
  * Write a fake tool into a directory, in the flavour this host can run.
  *
  * On POSIX the fake is an executable shell script named after the tool. On
- * Windows the behaviour lives in a `.ps1` script and a launcher named after the
- * tool puts it on `PATH` — `cmd.exe` is the only thing Windows can start a
- * script through.
+ * Windows the behaviour lives in a `.mjs` script and a `.cmd`/`.bat` launcher
+ * named after the tool puts it on `PATH` — `cmd.exe` is the only thing Windows
+ * starts a script through, and the launcher runs the same Node that is running
+ * the suite, not a PowerShell installation.
  *
  * @param {string} dir - the directory to write into.
  * @param {string} name - the tool's name, as the plugin looks for it.
@@ -495,13 +562,11 @@ export async function writeFakeTool(dir, name, steps, options = {}) {
   assertSteps(steps)
   if (process.platform === 'win32') {
     const extension = options.launcher ?? 'cmd'
-    await writeFile(path.join(dir, `${name}.ps1`), renderPowerShell(steps), 'utf8')
+    await writeFile(path.join(dir, `${name}.mjs`), renderNode(steps), 'utf8')
     const launcher = [
       '@echo off',
       'setlocal',
-      'set "PS=powershell"',
-      'where pwsh >nul 2>&1 && set "PS=pwsh"',
-      `%PS% -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0${name}.ps1" %*`,
+      `"${process.execPath}" "%~dp0${name}.mjs" %*`,
       'exit /b %ERRORLEVEL%',
       '',
     ].join('\r\n')
@@ -523,5 +588,5 @@ export async function writeFakeTool(dir, name, steps, options = {}) {
  * @returns {string} the script that platform would run.
  */
 export function fakeToolSource(steps, platform = process.platform) {
-  return platform === 'win32' ? renderPowerShell(steps) : renderShell(steps)
+  return platform === 'win32' ? renderNode(steps) : renderShell(steps)
 }

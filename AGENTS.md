@@ -16,7 +16,7 @@ browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 353 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 354 tests: unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -27,6 +27,11 @@ pnpm run link:dsh-deps       # offline dev: link a local DSH's @deepseek-ai pack
 
 `pnpm run check` must be green before any commit that touches `lib/`. It is the
 only command that catches host↔client drift.
+
+On Windows, run shell commands with `pwsh` (PowerShell 7) when it is installed;
+`cmd.exe` is the final fallback. The in-box Windows PowerShell 5.1
+(`powershell.exe`) is never invoked — not by the test suite, not by the fakes,
+and not by the setup procedure in `skills/android-dev/INSTALL_ENVIRONMENT.md`.
 
 Anything needing an SDK, an emulator or Gradle is a `scripts/smoke.mjs` concern
 and must never become a `pnpm test` requirement.
@@ -388,15 +393,22 @@ macOS and fails or is skipped everywhere else.
 
 `test/helpers/fake-tool.mjs` owns the convention. A fake is a **list of steps**
 — record the argv, print a line, branch on an argument or a file, copy, sleep,
-exit — and the helper renders it twice: a POSIX shell script on POSIX, a
-PowerShell script plus a `.cmd`/`.bat` launcher on Windows. That launcher is the
-name the plugin resolves on `PATH`, and `cmd.exe` is the only thing Windows can
-start a script through; the plugin already routes a batch file through it.
+exit — and the helper renders it twice: a POSIX shell script on POSIX, and on
+Windows a **Node step script behind a `.cmd`/`.bat` launcher**. That launcher is
+the name the plugin resolves on `PATH`, and `cmd.exe` is the only thing Windows
+can start a script through; it starts the launcher, not the behaviour.
+
+The Node runtime is the same `process.execPath` that runs the test suite,
+embedded as an absolute path in the launcher, so a Windows machine needs no
+PowerShell installation at all for the tests and no `PATH` lookup for `node`.
 
 Three consequences worth knowing:
 
-- **PowerShell is the Windows flavour, and that is a deliberate rule.** Write new
-  fakes as steps, never as a shell string, so both platforms keep working.
+- **A fake is always rendered from steps, never as a shell string.** Windows
+  carries the behaviour in Node because the project's Windows rule is `pwsh`
+  first, `cmd.exe` as the final fallback and never the in-box `powershell.exe`;
+  a fake needs no shell, so it uses Node and stays runnable on a stock Windows
+  that has never installed PowerShell 7.
 - **A test runtime must pin `sdkPath`.** The plugin discovers the Android SDK on
   its own, including by scanning the drive roots, so on a machine that *has* an
   SDK installed the plugin would find the real `adb` instead of the fake. Point

@@ -17,7 +17,7 @@ import { writeFakeTool } from './helpers/fake-tool.mjs'
  * unexplained boot timeout.
  *
  * The fake is rendered for the host by `helpers/fake-tool.mjs`: a shell script
- * on POSIX, a PowerShell script behind a `.cmd` launcher on Windows, so the
+ * on POSIX, a Node step script behind a `.cmd` launcher on Windows, so the
  * same contracts are pinned on both.
  */
 

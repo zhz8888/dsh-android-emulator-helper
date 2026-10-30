@@ -80,7 +80,7 @@ const NODE_RECORD_KEYS = [
  * mapped onto those two files, which is the only part of the dump not under test.
  *
  * The fake is rendered for the host by `helpers/fake-tool.mjs`: a shell script
- * on POSIX, a PowerShell script behind a `.cmd` launcher on Windows.
+ * on POSIX, a Node step script behind a `.cmd` launcher on Windows.
  *
  * @param {{screen?: string, devices?: string, devicesAfterStart?: string, emulatorSteps?: object[], uiAutomator?: boolean}} [options]
  *   - the XML the next dump should publish, the device transcripts, the steps

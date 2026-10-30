@@ -71,7 +71,7 @@ async function argvWith(file, needle) {
  * Build the steps of a fake `adb`.
  *
  * The steps are rendered for the host by `helpers/fake-tool.mjs` — a shell
- * script on POSIX, a PowerShell script behind a `.cmd` launcher on Windows —
+ * script on POSIX, a Node step script behind a `.cmd` launcher on Windows —
  * so the same fake drives the real providers on both.
  *
  * @param {object} options - what the fake answers.

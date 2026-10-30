@@ -31,7 +31,7 @@ const PACKAGES = ['schemastery', 'cordis', 'dsh-tools']
 /**
  * The user's home directory, in whatever shell this host runs under.
  *
- * `HOME` is a POSIX convention: `cmd.exe` and PowerShell do not set it, so
+ * `HOME` is a POSIX convention: `cmd.exe` and PowerShell 7 do not set it, so
  * reading it alone turned the profile directory into the *relative*
  * `.dsh\profiles\desktop`, silently resolved against whatever directory the
  * developer happened to run the script from. On Windows `USERPROFILE` is the

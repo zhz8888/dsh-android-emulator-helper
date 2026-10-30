@@ -28,8 +28,11 @@ prefix. The tools are `android_preflight`, `android_discover_project`,
    - If the required environment is not ready, follow `INSTALL_ENVIRONMENT.md`
      (resolve it against this skill's base directory) before continuing. Missing
      emulator-only checks do not block a selected ready USB device target.
-   - Environment setup is done with the fixed macOS shell or Windows PowerShell
-     procedure in that file; do not improvise unrelated install commands.
+   - Environment setup uses the fixed macOS shell procedure or the Windows
+     PowerShell 7 (`pwsh`) procedure in that file; do not improvise unrelated
+     install commands. On Windows prefer `pwsh`; use `cmd.exe` only when `pwsh`
+     is unavailable (plain tool invocations work there), and never the in-box
+     Windows PowerShell 5.1 (`powershell.exe`).
    - Do not accept Android SDK licenses, enter passwords, wipe emulator data, or
      delete AVDs on the user's behalf. Stop and ask the user for those cases.
 2. Discover the project with `android_discover_project`.

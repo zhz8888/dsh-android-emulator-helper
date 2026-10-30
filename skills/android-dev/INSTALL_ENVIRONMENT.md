@@ -18,7 +18,7 @@ system image variant/ABI. `android_preflight` reports the effective defaults,
 and the same page has a **Run diagnostic** button that runs the whole
 diagnostic.
 
-The values below are read by the shell and PowerShell commands in this file. They
+The values below are read by the shell and PowerShell 7 commands in this file. They
 still fall back to the historical `ANDROID_PLUGIN_*` environment variables, so an
 existing ZCode or CI setup keeps working without editing the configuration page.
 
@@ -30,9 +30,9 @@ Use those configured values instead of inventing versions. The documented fallba
 - `ANDROID_PLUGIN_SYSTEM_IMAGE_VARIANT=default`
 - `ANDROID_PLUGIN_SYSTEM_IMAGE_ABI=` for host-based auto selection
 
-The Windows PowerShell setup commands also accept these shell environment
-overrides when you run them directly; they are not plugin user config and are
-not settings-page values:
+The Windows PowerShell 7 (`pwsh`) setup commands also accept these shell
+environment overrides when you run them directly; they are not plugin user
+config and are not settings-page values:
 
 - `ANDROID_PLUGIN_DEFAULT_PROFILE=medium_phone`
 - `ANDROID_PLUGIN_WINDOWS_JDK_WINGET_PACKAGE=EclipseAdoptium.Temurin.17.JDK`
@@ -40,7 +40,7 @@ not settings-page values:
 ## Guardrails
 
 - Use explicit long timeouts for install commands, normally 10-30 minutes.
-- Do not run `brew`, `sdkmanager`, `avdmanager`, or PowerShell installers in the background.
+- Do not run `brew`, `sdkmanager`, `avdmanager`, or PowerShell 7 installers in the background.
 - Do not pipe long installer output through `tail` only; preserve logs when useful.
 - If a command asks for a password, administrator permission, or license acceptance, stop and ask the user to complete or approve that step.
 - After each setup phase, re-run `android_preflight` and continue from the latest result.
@@ -56,9 +56,9 @@ brew list gradle >/dev/null 2>&1 || brew install gradle
 gradle -v
 ```
 
-Windows PowerShell:
+Windows PowerShell 7 (`pwsh`):
 
-```powershell
+```pwsh
 winget install --id Gradle.Gradle --exact --source winget --accept-source-agreements --accept-package-agreements --silent
 gradle -v
 ```
@@ -193,7 +193,18 @@ avdmanager create avd \
 
 If the AVD already exists, do not delete it unless the user explicitly confirms.
 
-## Windows PowerShell
+## Windows (PowerShell 7)
+
+Run these commands in PowerShell 7 (`pwsh`). If `pwsh` is not installed, either
+install it from Microsoft:
+
+```pwsh
+winget install --id Microsoft.PowerShell --exact --source winget --accept-source-agreements --accept-package-agreements
+```
+
+or run the plain tool invocations (`winget`, `sdkmanager.bat`, `avdmanager.bat`,
+`gradle`, `emulator.exe`) directly in `cmd.exe`. The in-box Windows PowerShell
+5.1 (`powershell.exe`) is not supported for this procedure: do not use it.
 
 Run these commands step by step. They install the configured JDK and Android
 Studio with `winget`, then use the Android SDK tools that Android Studio
@@ -201,7 +212,7 @@ installs. Keep the setup visible for review.
 
 ### Detect Current State
 
-```powershell
+```pwsh
 $PSVersionTable.PSVersion
 where.exe java 2>$null
 where.exe gradle 2>$null
@@ -214,7 +225,7 @@ Write-Output "ANDROID_SDK_ROOT=$env:ANDROID_SDK_ROOT"
 
 ### Install JDK, Gradle, and Android Studio
 
-```powershell
+```pwsh
 $JdkPackage = if ($env:ANDROID_PLUGIN_WINDOWS_JDK_WINGET_PACKAGE) { $env:ANDROID_PLUGIN_WINDOWS_JDK_WINGET_PACKAGE } else { "EclipseAdoptium.Temurin.17.JDK" }
 winget install --id "$JdkPackage" --exact --source winget --accept-source-agreements --accept-package-agreements --silent
 winget install --id Gradle.Gradle --exact --source winget --accept-source-agreements --accept-package-agreements --silent
@@ -228,7 +239,7 @@ Android SDK Platform-Tools, Android Emulator, the configured Android platform,
 build tools, and a system image. Avoid direct zip URLs here so the guide does
 not need to maintain Google command-line tools package identifiers.
 
-```powershell
+```pwsh
 $SdkRoot = if ($env:ANDROID_PLUGIN_SDK_PATH) { $env:ANDROID_PLUGIN_SDK_PATH } else { "$env:LOCALAPPDATA\Android\Sdk" }
 $SdkManager = Join-Path $SdkRoot "cmdline-tools\latest\bin\sdkmanager.bat"
 if (-not (Test-Path $SdkManager)) {
@@ -238,7 +249,7 @@ if (-not (Test-Path $SdkManager)) {
 
 Configure the current session:
 
-```powershell
+```pwsh
 $env:ANDROID_HOME = $SdkRoot
 $env:ANDROID_SDK_ROOT = $SdkRoot
 $JdkMajor = if ($env:ANDROID_PLUGIN_JDK_MAJOR) { $env:ANDROID_PLUGIN_JDK_MAJOR } else { "17" }
@@ -251,7 +262,7 @@ $env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;$env:ANDROID_HO
 
 Persist user-level environment variables when the user wants future terminals to inherit them:
 
-```powershell
+```pwsh
 [Environment]::SetEnvironmentVariable("ANDROID_HOME", $env:ANDROID_HOME, "User")
 [Environment]::SetEnvironmentVariable("ANDROID_SDK_ROOT", $env:ANDROID_HOME, "User")
 [Environment]::SetEnvironmentVariable("JAVA_HOME", $env:JAVA_HOME, "User")
@@ -261,7 +272,7 @@ Install SDK packages:
 
 Default to the smaller `default` system image.
 
-```powershell
+```pwsh
 $AndroidApiLevel = if ($env:ANDROID_PLUGIN_API_LEVEL) { $env:ANDROID_PLUGIN_API_LEVEL } else { "35" }
 $BuildToolsVersion = if ($env:ANDROID_PLUGIN_BUILD_TOOLS_VERSION) { $env:ANDROID_PLUGIN_BUILD_TOOLS_VERSION } else { "35.0.0" }
 $SystemImageVariant = if ($env:ANDROID_PLUGIN_SYSTEM_IMAGE_VARIANT) { $env:ANDROID_PLUGIN_SYSTEM_IMAGE_VARIANT } else { "default" }
@@ -279,7 +290,7 @@ sdkmanager.bat --sdk_root="$env:ANDROID_HOME" --install `
 
 If SDK licenses block installation, ask the user to approve license handling before running:
 
-```powershell
+```pwsh
 sdkmanager.bat --sdk_root="$env:ANDROID_HOME" --licenses
 ```
 
@@ -288,7 +299,7 @@ Create an AVD:
 Only create an AVD when no ready USB device is available and the user needs a
 new emulator target.
 
-```powershell
+```pwsh
 $AvdName = if ($env:ANDROID_PLUGIN_DEFAULT_AVD) { $env:ANDROID_PLUGIN_DEFAULT_AVD } else { "medium_phone" }
 $DeviceProfile = if ($env:ANDROID_PLUGIN_DEFAULT_PROFILE) { $env:ANDROID_PLUGIN_DEFAULT_PROFILE } else { "medium_phone" }
 
@@ -304,7 +315,7 @@ The command-line flow can install the SDK and create an AVD, but Windows emulato
 
 Check acceleration:
 
-```powershell
+```pwsh
 emulator.exe -accel-check
 ```
 
@@ -314,7 +325,7 @@ If acceleration or drivers are missing:
 - Prefer enabling Windows Hypervisor Platform / WHPX when available.
 - If the emulator driver still needs setup, install Android Studio and ask the user to finish Device Manager or driver prompts:
 
-```powershell
+```pwsh
 winget install --id Google.AndroidStudio --exact --source winget --accept-source-agreements --accept-package-agreements
 ```
 
@@ -336,9 +347,9 @@ macOS:
 printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
 ```
 
-Windows PowerShell:
+Windows PowerShell 7 (`pwsh`):
 
-```powershell
+```pwsh
 $SdkDir = $env:ANDROID_HOME -replace '\\', '/'
 "sdk.dir=$SdkDir" | Set-Content local.properties
 ```
@@ -351,9 +362,9 @@ macOS:
 gradle wrapper --gradle-version 8.9
 ```
 
-Windows PowerShell:
+Windows PowerShell 7 (`pwsh`):
 
-```powershell
+```pwsh
 gradle wrapper --gradle-version 8.9
 ```
 
