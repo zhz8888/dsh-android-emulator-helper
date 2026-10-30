@@ -16,7 +16,7 @@ browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 354 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 357 tests: unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -425,8 +425,10 @@ The tests skipped on Windows are the ones whose contract **is** POSIX — SIGTER
 trap-and-escalate, a grandchild holding a pipe open, and a directory symlink
 fixture (which needs `SeCreateSymbolicLinkPrivilege`) — plus the seed-table
 check, which skips when no installed DSH web frontend can be located on the
-platform; `DSH_WEB_FRONTEND` points it at one the default search cannot see.
-Each skip carries the reason next to it.
+platform (`DSH_WEB_FRONTEND` points it at one the default search cannot see), and
+the wedged-dump case: its hanging fake is a grandchild of the `.cmd` launcher,
+`run()` terminates only the launcher, and the survivor holds the runner's stdout
+pipe open. Each skip carries the reason next to it.
 
 Two limits are accepted rather than worked around:
 

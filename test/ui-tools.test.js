@@ -145,6 +145,18 @@ async function fakeAdb(options = {}) {
               ifFile: state('dump-errors'),
               then: [{ out: 'ERROR: could not get idle state.' }, { exit: 0 }],
             },
+            {
+              // A wedged dump never answers, so the only thing the caller sees
+              // is the shell deadline; it is still a failed dump, not a dead adb.
+              ifFile: state('dump-hangs'),
+              then: [{ hang: true }],
+            },
+            {
+              // A device-side SIGKILL reaches the caller as exit 137 with no
+              // timeout involved; it is still a failed dump.
+              ifFile: state('dump-killed'),
+              then: [{ exit: 137 }],
+            },
             { copy: [state('screen.xml'), state('window.xml')] },
             // Record which path this call published, so a read of any OTHER
             // path fails exactly as it would on a device that never wrote it.
@@ -259,6 +271,16 @@ async function fakeAdb(options = {}) {
     errorDump: async (fails) => {
       if (fails) await writeFile(path.join(stateDir, 'dump-errors'), '', 'utf8')
       else await rm(path.join(stateDir, 'dump-errors'), { force: true })
+    },
+    /** Make `uiautomator dump` wedge until the shell times out. */
+    hangDump: async (hangs) => {
+      if (hangs) await writeFile(path.join(stateDir, 'dump-hangs'), '', 'utf8')
+      else await rm(path.join(stateDir, 'dump-hangs'), { force: true })
+    },
+    /** Make `uiautomator dump` die from a signal on the device side. */
+    killDump: async (killed) => {
+      if (killed) await writeFile(path.join(stateDir, 'dump-killed'), '', 'utf8')
+      else await rm(path.join(stateDir, 'dump-killed'), { force: true })
     },
   }
 }
@@ -569,6 +591,45 @@ test('describe names a dump that reported an error on stdout while exiting 0', a
   await assert.rejects(() => describe(harness.rt, { serial: 'emulator-5554' }), (error) => {
     assert.match(error.message, /UI Automator produced no dump for emulator-5554/)
     assert.match(error.message, /Retry once the app has settled/)
+    return true
+  })
+})
+
+// Skipped on Windows: the wedged fake is a grandchild of the `.cmd` launcher,
+// `run()` terminates only the launcher, and the surviving fake holds the stdout
+// pipe open, so the test runner's file process never exits. The dump-to-error
+// mapping itself is still exercised on every platform by the other three modes.
+test('a dump that wedges is reported as a dump failure, not an adb timeout', { skip: process.platform === 'win32', timeout: 30_000 }, async () => {
+  // A hung `uiautomator` leaves only the shell's timeout behind:
+  //   `<adb> timed out with no output`
+  // That is truthful but has nothing to act on, and it reads as a dead adb
+  // rather than a busy device. It is the same device-side dump failure as the
+  // other two, so it must carry the same actionable message.
+  const harness = await fakeAdb({ screen: hierarchy(node({ text: 'ScreenOne', bounds: '[0,0][10,10]' })) })
+  await harness.hangDump(true)
+  const started = Date.now()
+  await assert.rejects(() => describe(harness.rt, { serial: 'emulator-5554', timeoutMs: 400 }), (error) => {
+    assert.match(error.message, /UI Automator produced no dump for emulator-5554/)
+    assert.match(error.message, /Retry once the app has settled/)
+    assert.doesNotMatch(error.message, /timed out with no output/)
+    return true
+  })
+  // Bounded: the dump deadline plus the SIGTERM->SIGKILL grace and drain.
+  assert.ok(Date.now() - started < 20_000, 'the wedged dump must be bounded by the timeout')
+})
+
+test('a dump killed by a signal is reported as a dump failure, not as adb dying', { timeout: 30_000 }, async () => {
+  // Observed on a real device: the device-side dump process was SIGKILLed, so
+  // adb exited 137 with no timeout. The caller saw
+  //   `/opt/homebrew/bin/adb was killed by signal 9`
+  // which names the transport and says nothing about the screen. It is the same
+  // "no dump arrived" condition as the other modes and gets the same message.
+  const harness = await fakeAdb({ screen: hierarchy(node({ text: 'ScreenOne', bounds: '[0,0][10,10]' })) })
+  await harness.killDump(true)
+  await assert.rejects(() => describe(harness.rt, { serial: 'emulator-5554', timeoutMs: 5_000 }), (error) => {
+    assert.match(error.message, /UI Automator produced no dump for emulator-5554/)
+    assert.match(error.message, /Retry once the app has settled/)
+    assert.doesNotMatch(error.message, /signal 9|killed by signal/)
     return true
   })
 })
