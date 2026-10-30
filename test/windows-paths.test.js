@@ -100,6 +100,88 @@ test('the SDK a project records in local.properties is a candidate', async (t) =
   assert.ok(roots.includes(sdk), `expected ${sdk} among ${roots.join(', ')}`)
 })
 
+// ---------------------------------------------------------------------------
+// The SDK Android Studio records
+// ---------------------------------------------------------------------------
+
+/**
+ * Write one `android.sdk.path.xml` below a scratch `%APPDATA%`, as Studio does.
+ *
+ * The wrapper is the real file's: the option lives under a component named
+ * `AndroidSdkPathStore`, and the path is the option's `value`. The option line
+ * is a parameter because the interesting cases are the ones where it does not
+ * name a usable SDK.
+ *
+ * @param {string} appData - the scratch `%APPDATA%` directory.
+ * @param {string} version - the IDE directory name, e.g. `AndroidStudio2025.1.3`.
+ * @param {string} option - the `<option … />` line to put in the component.
+ * @returns {Promise<void>} resolves once the file is written.
+ */
+async function writeStudioSdkFile(appData, version, option) {
+  const dir = path.join(appData, 'Google', version, 'options')
+  await mkdir(dir, { recursive: true })
+  await writeFile(
+    path.join(dir, 'android.sdk.path.xml'),
+    ['<application>', '  <component name="AndroidSdkPathStore">', `    ${option}`, '  </component>', '</application>', ''].join(
+      '\n',
+    ),
+  )
+}
+
+test('the SDK Android Studio records is a candidate', async (t) => {
+  // The real file holds
+  //   <option name="androidSdkAbsolutePath" value="D:\JetBrains\Android-Sdk" />
+  // and a pattern that expected the name to run straight into `value` never
+  // matched it, so a machine whose only record of the SDK is this file was
+  // reported as having no SDK at all.
+  const appData = await scratch(t)
+  await writeStudioSdkFile(
+    appData,
+    'AndroidStudio2025.1.3',
+    '<option name="androidSdkAbsolutePath" value="D:\\JetBrains\\Android-Sdk" />',
+  )
+  const rt = runtime({ env: { APPDATA: appData } })
+  const roots = await sdkRoots(rt)
+  assert.ok(
+    roots.includes(path.resolve(rt.cwd, 'D:\\JetBrains\\Android-Sdk')),
+    `expected the Studio record among ${roots.join(', ')}`,
+  )
+})
+
+test('a $USER_HOME$ macro in the Android Studio record is expanded', async (t) => {
+  // Studio writes a path below the profile with the JetBrains macro instead of
+  // the profile itself. Left unexpanded it names no directory, so the record
+  // is worthless until the macro is resolved against the same home the rest of
+  // the plugin reads.
+  const home = path.join(await scratch(t), 'me')
+  const appData = await scratch(t)
+  await writeStudioSdkFile(
+    appData,
+    'AndroidStudio2024.3',
+    `<option name="androidSdkAbsolutePath" value="$USER_HOME$${path.sep}Android${path.sep}Sdk" />`,
+  )
+  const rt = runtime({ env: { APPDATA: appData, USERPROFILE: home, HOME: home } })
+  const roots = await sdkRoots(rt)
+  assert.ok(
+    roots.includes(path.join(home, 'Android', 'Sdk')),
+    `expected the expanded home among ${roots.join(', ')}`,
+  )
+})
+
+test('an Android Studio record that names no SDK path adds no candidate', async (t) => {
+  // Two files Studio itself can leave behind: an option whose value is empty
+  // (a path that was never set) and an older record under a different option
+  // name. Neither may become a candidate — an empty value would otherwise
+  // resolve to the session workspace and be probed as if it were an SDK.
+  const appData = await scratch(t)
+  await writeStudioSdkFile(appData, 'AndroidStudio2025.1.3', '<option name="androidSdkAbsolutePath" value="" />')
+  await writeStudioSdkFile(appData, 'AndroidStudio2024.3', '<option name="androidSdkHome" value="D:\\Stale\\Sdk" />')
+  const rt = runtime({ env: { APPDATA: appData } })
+  const roots = await sdkRoots(rt)
+  assert.ok(!roots.includes(path.resolve(rt.cwd)), 'an empty record must not become the session workspace')
+  assert.ok(!roots.some((item) => item.includes('Stale')), `unexpected stale record among ${roots.join(', ')}`)
+})
+
 test('a configured SDK path is used verbatim, even when it does not exist', async (t) => {
   const dir = await scratch(t)
   const wanted = path.join(dir, 'nowhere', 'Sdk')
@@ -138,9 +220,24 @@ test('the AVD home defaults to the user home', async () => {
   assert.equal(await androidAvdHome(rt), path.join('C:\\Users\\me', '.android', 'avd'))
 })
 
-test('ANDROID_AVD_HOME wins over the default', async () => {
-  const rt = runtime({ env: { ANDROID_AVD_HOME: 'D:\\avds', USERPROFILE: 'C:\\Users\\me' } })
-  assert.equal(await androidAvdHome(rt), path.resolve('D:\\avds'))
+test('ANDROID_AVD_HOME wins over the default', async (t) => {
+  // A real absolute directory, so the assertion holds on either platform: the
+  // setting is resolved against the runtime's workspace, and a drive-lettered
+  // path is not absolute on POSIX, where it would name nothing near the AVDs.
+  const dir = await scratch(t)
+  const rt = runtime({ env: { ANDROID_AVD_HOME: dir, USERPROFILE: path.join(dir, 'nowhere') } })
+  assert.equal(await androidAvdHome(rt), path.resolve(dir))
+})
+
+test('a relative ANDROID_AVD_HOME resolves against the session workspace', async (t) => {
+  // This assertion used to resolve the expected path against `process.cwd()`
+  // while the provider resolves against `rt.cwd`. The two agreed on Windows
+  // only by accident — the fixture was drive-lettered, so it resolved to itself
+  // — and never on POSIX. Pinning the base is the point: a relative AVD home
+  // is the session's, not whichever directory the test runner was started in.
+  const dir = await scratch(t)
+  const rt = runtime({ cwd: dir, env: { ANDROID_AVD_HOME: 'avds', USERPROFILE: 'C:\\Users\\me' } })
+  assert.equal(await androidAvdHome(rt), path.join(dir, 'avds'))
 })
 
 test('the child PATH keeps the system directories even without a caller PATH', async () => {
