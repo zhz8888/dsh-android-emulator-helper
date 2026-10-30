@@ -455,7 +455,7 @@ test('an explicit serial that is absent is never retargeted', async () => {
 })
 
 test('a malformed serial is refused before it reaches adb', async () => {
-  const { rt } = await toolchain({ adb: 'exit 0' })
+  const { rt } = await toolchain({ adb: [{ exit: 0 }] })
   await assert.rejects(() => pickDevice(rt, { serial: 'emulator-5554; rm -rf /' }), /Invalid Android device serial/)
 })
 
@@ -794,6 +794,28 @@ test('an exact AVD name wins over a longer name that contains it', async () => {
   assert.deepEqual(argv, ['-avd', 'Pixel'])
 })
 
+test('an AVD name is trimmed before it is matched and passed to -avd', async () => {
+  // The name reaches `emulator -avd` and the transcript file name, and a caller
+  // that wraps it in spaces means the name itself. Trimming after validating
+  // made `'   '` look valid and then passed an empty name on.
+  const { rt, paths } = await toolchain({
+    adb: ADB_EMPTY,
+    emulator: EMULATOR_WARNS('Pixel_10'),
+  })
+  await assert.rejects(() => startEmulator(rt, { avd: '  Pixel_10  ' }), /exited during startup/)
+  const [argv] = await argvs(paths.spawnArgv)
+  assert.deepEqual(argv, ['-avd', 'Pixel_10'])
+})
+
+test('a blank AVD name is refused before an emulator is spawned', async () => {
+  const { rt, paths } = await toolchain({
+    adb: ADB_EMPTY,
+    emulator: EMULATOR_LISTS('Pixel_10'),
+  })
+  await assert.rejects(() => startEmulator(rt, { avd: '   ' }), /Invalid Android AVD name/)
+  assert.deepEqual(await argvs(paths.spawnArgv), [], 'no emulator may be spawned for a blank name')
+})
+
 test('bootTimeoutSeconds is seconds and the call override is milliseconds', () => {
   // Pinned directly rather than by counting polls: a poll count depends on the
   // machine's timing and on the poll cadence, neither of which is this contract.
@@ -843,16 +865,20 @@ test('a new emulator stuck in unauthorized burns the boot timeout, then names th
     await assert.rejects(
       () => startEmulator(rt, {}),
       (error) => {
-        // The deadline message must not claim the emulator failed to boot: the
-        // emulator is still running and may finish booting after the call.
+        // The deadline message must name the blocker and say what happened to
+        // the process: this call gives up on the boot, so the emulator it
+        // started is terminated rather than described as possibly still
+        // booting.
         assert.match(error.message, /Emulator boot deadline reached before Android finished booting/)
-        assert.match(error.message, /may still finish booting after this call returns/)
         assert.match(error.message, /emulator-5558:unauthorized/)
+        assert.match(error.message, /was terminated/)
+        assert.doesNotMatch(error.message, /may still finish booting/)
         return true
       },
     )
   } finally {
-    // The timeout path leaves the emulator running; the fake must not outlive the test.
+    // The start terminates the emulator it spawned; this is only the safety net
+    // for the case where the fake outlived the assertion, not the expected path.
     const pid = Number((await readFile(paths.pidFile, 'utf8').catch(() => '')).trim())
     if (Number.isInteger(pid) && pid > 0) {
       try {
@@ -903,5 +929,13 @@ test('create_avd answers avdmanager down the "no" path and surfaces its refusal'
 test('create_avd refuses an invalid AVD name before spawning avdmanager', async () => {
   const { rt, paths } = await toolchain({ avdmanager: (p) => [{ record: p.argvFile }] })
   await assert.rejects(() => createAvd(rt, { name: 'bad;name' }), /Invalid Android AVD name/)
+  assert.deepEqual(await argvs(paths.argvFile), [])
+})
+
+test('create_avd refuses a blank AVD name before spawning avdmanager', async () => {
+  // Validating before trimming let a name of nothing but spaces pass and then
+  // become `avdmanager ... --name ""`.
+  const { rt, paths } = await toolchain({ avdmanager: (p) => [{ record: p.argvFile }] })
+  await assert.rejects(() => createAvd(rt, { name: '   ' }), /Invalid Android AVD name/)
   assert.deepEqual(await argvs(paths.argvFile), [])
 })

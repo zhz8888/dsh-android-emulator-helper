@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../lib/runtime.js'
-import { listAvds, parseAvdIni, scanAvds } from '../lib/providers/avd.js'
+import { listAvds, parseAvdIni, parseAvds, scanAvds } from '../lib/providers/avd.js'
 import { writeFakeTool } from './helpers/fake-tool.mjs'
 
 /**
@@ -137,6 +137,38 @@ test('the command cannot re-add a record whose payload was deleted', async () =>
   })
   await seedAvdHome(avdHome)
   assert.deepEqual((await listAvds(rt)).map((item) => item.name), ['Pixel_8'], 'deduped and filtered')
+})
+
+test('the emulator list keeps only names that could ever be started', () => {
+  // `emulator -list-avds` prints names, one per line, and a name is either one
+  // `emulator -avd` accepts or it is not. The list used to keep anything that
+  // was not blank — including a diagnostic line or a name that can never be
+  // passed to `-avd` — while the explicit argument and the AVD directory were
+  // validated, so the list and the start disagreed about what exists.
+  assert.deepEqual(parseAvds(['Pixel_8', 'bad#name', '   ', '  Pixel_8_Pro  ', '../escaped'].join('\n')), [
+    { name: 'Pixel_8' },
+    { name: 'Pixel_8_Pro' },
+  ])
+  assert.deepEqual(parseAvds('   \n\n'), [])
+})
+
+test('an invalid name from the emulator never joins the list', async () => {
+  const { rt, avdHome } = await runtime({
+    emulator: [
+      {
+        ifSub: '-list-avds',
+        then: [
+          { out: 'Pixel_8' },
+          { out: 'bad#name' },
+          { out: '   ' },
+          { out: '../escaped' },
+          { exit: 0 },
+        ],
+      },
+    ],
+  })
+  await seedAvdHome(avdHome)
+  assert.deepEqual((await listAvds(rt)).map((item) => item.name), ['Pixel_8'])
 })
 
 test('a failed emulator does not hide the AVDs the directory proves exist', async () => {
