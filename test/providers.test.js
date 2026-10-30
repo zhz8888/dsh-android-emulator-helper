@@ -107,7 +107,9 @@ test('APK selection prefers the requested variant directory', () => {
   ]
   assert.equal(pickApk(hits, 'debug'), '/p/app/build/outputs/apk/debug/app-debug.apk')
   assert.equal(pickApk(hits, 'release'), '/p/app/build/outputs/apk/release/app-release.apk')
-  assert.equal(pickApk(hits, 'staging'), hits[0], 'an unknown variant falls back to the first product')
+  // A variant no product matches is reported as unresolved rather than
+  // silently substituted with whichever APK readdir returned first.
+  assert.equal(pickApk(hits, 'staging'), undefined)
 })
 
 test('missing project files produce the documented warnings', () => {
@@ -182,7 +184,11 @@ test('APK selection understands a flavor directory', () => {
     '/p/app/build/outputs/apk/freeDebug/app-free-debug.apk',
     '/p/app/build/outputs/apk/paidDebug/app-paid-debug.apk',
   ]
-  assert.equal(pickApk(hits, 'debug'), '/p/app/build/outputs/apk/freeDebug/app-free-debug.apk')
+  // `debug` matches both flavors' file suffix, so no product can be chosen
+  // without guessing which flavor the caller meant; the candidate list belongs
+  // to the caller. A flavor variant name resolves exactly.
+  assert.equal(pickApk(hits, 'debug'), undefined)
+  assert.equal(pickApk(hits, 'freeDebug'), '/p/app/build/outputs/apk/freeDebug/app-free-debug.apk')
 })
 
 test('create pins the configured build-tools release into the generated project', async () => {
