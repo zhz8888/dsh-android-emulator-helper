@@ -119,6 +119,41 @@ test('the switch sits in a right-hand column, with its label and hint on the lef
   )
 })
 
+test('every dropdown shares one chevron, including the SDK suggestion inputs', () => {
+  // Three kinds of control offer a list: the two fixed selects, the
+  // discovery AVD dropdown and the four suggestion-backed text inputs. They
+  // all render through one wrapper, so the SDK group's datalist inputs can
+  // no longer look different from the selects in the other groups.
+  const wrappers = report.markup.match(/<span class="aemh_selectWrap">/g) ?? []
+  const chevrons = report.markup.match(/<svg class="aemh_chevron"/g) ?? []
+  assert.equal(wrappers.length, 7, 'two selects, one discovery dropdown, four suggestion inputs')
+  assert.equal(chevrons.length, wrappers.length, 'one chevron per framed control')
+  assert.match(report.markup, /<path d="M4 6l4 4 4-4"><\/path>/, 'the chevron is a stroked inline SVG path')
+
+  // The four suggestion fields keep their free-text input and datalist, but
+  // now carry the same chevron. Before discovery answers their option lists
+  // are empty, so the arrow must follow the declared `suggest` source rather
+  // than the live suggestion count.
+  assert.equal((report.markup.match(/aemh_hasSuggest/g) ?? []).length, 4)
+  assert.equal((report.markup.match(/<datalist/g) ?? []).length, 4)
+  for (const label of ['JDK major version', 'Build-tools version', 'Android API level', 'Default device serial']) {
+    const field = fieldMarkup(report.markup, label)
+    assert.ok(field, `missing field frame for ${label}`)
+    assert.match(field, /aemh_hasSuggest/, `${label} keeps its suggestion input`)
+    assert.match(field, /<svg class="aemh_chevron"/, `${label} shows the shared chevron`)
+    assert.match(field, /<datalist/, `${label} still owns a datalist`)
+  }
+})
+
+/** The markup of one labelled field, cut at the next field's frame. */
+function fieldMarkup(markup, label) {
+  const at = markup.indexOf(label)
+  if (at < 0) return ''
+  const start = markup.lastIndexOf('<div class="aemh_field', at)
+  const end = markup.indexOf('<div class="aemh_field', at + label.length)
+  return end < 0 ? markup.slice(start) : markup.slice(start, end)
+}
+
 test('the controls carry the values the host serves, not placeholders', () => {
   // A controlled input renders its live value; the checked switch proves the
   // boolean path; the selected option proves the enum path is not blank.
