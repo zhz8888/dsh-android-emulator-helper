@@ -90,6 +90,35 @@ test('a switch does not repeat its state as on/off text', () => {
   assert.ok(!/>off<\/span>/.test(report.markup))
 })
 
+test('the switch sits in a right-hand column, with its label and hint on the left', () => {
+  // A switch reads as a settings row, like the host's own General page: the
+  // title and description stay in the left text column, and the track is pinned
+  // to the right edge by its own column. Keep this a structural assertion, not
+  // one over the Switch primitive's internal DOM (which the primitives package
+  // owns and may restyle), so a future restyle of the track cannot break it.
+  const row = report.markup.match(/<div class="aemh_field aemh_fieldRow">([\s\S]*?)<\/div><\/div>/)
+  assert.ok(row, 'the boolean field must use the row layout')
+  const text = row[1]
+  assert.match(text, /<div class="aemh_fieldRowText">/, 'the left column holds the text')
+  assert.match(text, /<div class="aemh_fieldRowControl">/, 'the right column holds the control')
+  assert.match(text, /Start an emulator automatically<\/label>/, 'the row still renders its label')
+  assert.match(text, /When off, tools fail/, 'the row still renders its hint')
+  assert.match(text, /role="switch"/, 'the switch is inside the row')
+  // Left before right: the text column precedes the control column in DOM
+  // order, which is what puts the switch on the right-hand edge of the card.
+  assert.ok(text.indexOf('aemh_fieldRowText') < text.indexOf('aemh_fieldRowControl'))
+  assert.ok(text.indexOf('aemh_fieldRowText') < text.indexOf('role="switch"'))
+
+  // Only the one boolean field is a row; every text input, select and textarea
+  // keeps the full-width stacked frame so a 100%-wide control still reads
+  // naturally under its label.
+  assert.equal((report.markup.match(/aemh_fieldRow"/g) ?? []).length, 1, 'exactly one switch row')
+  assert.ok(
+    (report.markup.match(/<div class="aemh_field">/g) ?? []).length >= 15,
+    'the other sixteen fields keep the stacked frame',
+  )
+})
+
 test('the controls carry the values the host serves, not placeholders', () => {
   // A controlled input renders its live value; the checked switch proves the
   // boolean path; the selected option proves the enum path is not blank.
