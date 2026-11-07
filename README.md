@@ -6,10 +6,11 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![target: DSH](https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.2-blue.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
 
-A DeepSeek Harness (DSH) native port of the official ZCode `android-emulator@0.1.0` plugin: all 23 original MCP tools preserved as native DSH tools, plus a **parameter page on the plugin's own detail page** in the Plugins panel (Plugins → Installed plugins → Android Emulator Helper) that edits the SDK, emulator, system-image, build and output parameters in-app instead of through environment variables.
+A DeepSeek Harness (DSH) native port of the official ZCode `android-emulator@0.1.0` plugin: all 23 original MCP tools preserved as native DSH tools, plus a **parameter page on the plugin's own detail page** in the Plugins panel (Plugins → Installed plugins → Android Emulator Helper) that edits the SDK, emulator, system-image, build and output parameters in-app instead of through environment variables, and **the same page as a section in the Settings dialog** once its **Show in Settings** switch is on and saved, with its own line-art Android icon.
 
 - Tool and argument names are identical to the original, so workflows written for its `android_emulator` MCP server keep working; the port adds no tool and drops none.
-- 17 settings fields in 5 groups, all live-editable; the seven fields the original exposed still fall back to their `ANDROID_PLUGIN_*` variable, then to the built-in default.
+- 18 settings fields in 6 groups, all live-editable; the seven fields the original exposed still fall back to their `ANDROID_PLUGIN_*` variable, then to the built-in default.
+- The page lives on the plugin's own detail page by default; the **Show in Settings** switch in its last card also adds the same form to the **Settings** dialog's navigation, drawn with a line-art Android head as its icon. It is off by default, so a fresh profile keeps one configuration page.
 - The default AVD is picked from a dropdown of the AVDs on this machine that still have their payload: AVD discovery scans the AVD directory (`ANDROID_AVD_HOME`, then `$ANDROID_USER_HOME/avd`, then `~/.android/avd`) as well as asking `emulator -list-avds`, so the list survives a host where the emulator cannot be started.
 - `android_preflight` and the parameter page's **Run diagnostic** button run the same checks — SDK, `adb`, `emulator`, AVDs, JDK, Gradle — and print a fix for each failure.
 - Published as `@zhz8888/dsh-android-emulator-helper`; the plugin page shows **Android Emulator Helper** / **Android 模拟器助手** from `locale/` rather than the raw package name, and both descriptions say the plugin is unofficial and not affiliated with Google.
@@ -64,7 +65,7 @@ On a machine with an Android SDK, a JDK and DSH installed:
 dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper
 ```
 
-**DSH Desktop**: the `desktop` profile belongs to the Electron app — open **Plugins**, add `@zhz8888/dsh-android-emulator-helper` there, and enable the row it creates. After a reload or restart, open **Plugins → Installed plugins → Android Emulator Helper**: the parameter form is on that plugin's detail page, and only appears while the host half actually serves this plugin's settings namespace.
+**DSH Desktop**: the `desktop` profile belongs to the Electron app — open **Plugins**, add `@zhz8888/dsh-android-emulator-helper` there, and enable the row it creates. After a reload or restart, open **Plugins → Installed plugins → Android Emulator Helper**: the parameter form is on that plugin's detail page, and only appears while the host half actually serves this plugin's settings namespace. With **Show in Settings** on and saved, the same form is also a section in the Settings dialog.
 
 The published tarball contains everything the plugin needs — the host half, the browser bundle, the bundled skill and the `locale/` entries — and nothing is compiled at install time, so no build approval step is involved. `@deepseek-ai/cordis`, `@deepseek-ai/dsh-tools` and `@deepseek-ai/schemastery` are **peer dependencies** provided by the harness, so the plugin pulls in no second copy and has **no runtime dependencies** of its own; DSH's compatibility gate compares the `@deepseek-ai/dsh*` peer ranges against the running version and refuses to install on a mismatch.
 
@@ -94,7 +95,7 @@ Stable releases at or above the floor (`0.2.1`, `0.3.0`, `1.0.0`, …) are unaff
 
 ## Configuration page
 
-The settings namespace equals the profile patch row id equals `android-emulator-helper` (also `dsh.name`). The form registers with the Plugins page's `plugins.bundle.config` slot, keyed by the package name, so it renders inside the plugin's detail page in the Plugins panel instead of in the Settings dialog; it exists only while the host half serves that namespace. It reads and writes through `ctx.configForms`, so staged edits, dirty detection, inline validation, optimistic concurrency (revisions) and "overridden / reset to default" all come from the harness. The detail page draws the plugin's title, icon and description; the form contributes one line saying when an edit takes effect, one card per category — the card outline is what separates them — and saves from a sticky action bar at the bottom that appears only while there is something to act on: a staged edit, a write in flight, or a failure worth retrying.
+The settings namespace equals the profile patch row id equals `android-emulator-helper` (also `dsh.name`). The form registers with the Plugins page's `plugins.bundle.config` slot, keyed by the package name, so it renders inside the plugin's detail page in the Plugins panel; it exists only while the host half serves that namespace. It reads and writes through `ctx.configForms`, so staged edits, dirty detection, inline validation, optimistic concurrency (revisions) and "overridden / reset to default" all come from the harness. The detail page draws the plugin's title, icon and description; the form contributes one line saying when an edit takes effect, one card per category — the card outline is what separates them — and saves from a sticky action bar at the bottom that appears only while there is something to act on: a staged edit, a write in flight, or a failure worth retrying.
 
 | Group | Field | Kind | Default | Legacy env fallback |
 |---|---|---|---|---|
@@ -115,6 +116,9 @@ The settings namespace equals the profile patch row id equals `android-emulator-
 | Output and logs | `dataDir` | text | `$DSH_HOME/android-emulator-helper` | — |
 | | `screenshotDir` | text | `<data dir>/screenshots` | — |
 | | `logTailLines` | integer | `500` | — |
+| Interface | `showInSettings` | switch | off | — |
+
+That last card decides where the page lives. With **Show in Settings** off, the default, the form renders only on the plugin's detail page. Turn the switch on and save, and the bundle also registers a `settings.section` entry, id `android-emulator-helper` and order 100, plus the `settings.section.icon` contribution that draws its icon, so the same form, bound to the same settings namespace, also appears in the **Settings** dialog's navigation under **Android emulator**. The icon is the supplied Android glyph, shipped as its own file and referenced through the package's `./assets/*` export, drawn as a mask over `currentColor` so it follows the navigation item's colour at 16 px — the active state is the same artwork in the rail's active colour. Both registrations follow the saved value live, so turning the switch off removes the section again without a reload.
 
 Two buttons back the page with exact Fetch routes on the host half:
 
@@ -162,10 +166,14 @@ timeout and the extra Gradle arguments, then the top of the output card:
 **4. Output and diagnostics** — where screenshots and build logs land, then the
 diagnostics-and-discovery card: the two buttons backing the page, next to the
 Fetch routes above, and the discovery result it fills in — the detected SDK
-root, AVD home, AVDs and installed system images. The shot ends where the
-plugin's form section ends:
+root, AVD home, AVDs and installed system images. The interface card that now
+closes the page is below this capture:
 
-![The bottom of the form: the output-and-logs card with the data directory, screenshot directory and default logcat line count, then the diagnostics-and-discovery card with the run-diagnostic and refresh-devices buttons and the discovery result listing the detected SDK root, AVD home, AVDs and installed system images](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-4-output-and-diagnostics.png)
+![The end of the captured form: the output-and-logs card with the data directory, screenshot directory and default logcat line count, then the diagnostics-and-discovery card with the run-diagnostic and refresh-devices buttons and the discovery result listing the detected SDK root, AVD home, AVDs and installed system images](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-4-output-and-diagnostics.png)
+
+The interface card and the optional Settings section are newer than these four
+captures, so the shots stop one card short of the page; the gallery is
+re-captured after the next host restart.
 
 `screenshots.json` lists these four files in this order next to `package.json` in
 the repository, which is how a plugin market finds them.
@@ -208,7 +216,7 @@ degrades to text plus the file path instead of failing the call.
 | Aspect | Original (ZCode) | This plugin (DSH) |
 |---|---|---|
 | Tool exposure | stdio MCP server `android-emulator`; the model sees `mcp__android_emulator__*` | Native `ctx.tools.register()`; the model sees `android_*` |
-| User configuration | `plugin.json` `userConfig` (7 items), injected as environment variables | Configuration page with 17 fields on a schemastery `Config`, all `.volatile()`; the old environment variables remain as fallbacks |
+| User configuration | `plugin.json` `userConfig` (7 items), injected as environment variables | Configuration page with 18 fields on a schemastery `Config`, all `.volatile()`; the old environment variables remain as fallbacks |
 | Working directory | `process.cwd()` | `exec.agent.session.header.cwd` (the session workspace) |
 | Data directory | `ANDROID_PLUGIN_DATA` / temp | `$DSH_HOME/android-emulator-helper`, configurable on the configuration page |
 | Screenshot result | MCP image content (base64) | An image block built from a host attachment reference, degraded to text plus a disk path on refusal |

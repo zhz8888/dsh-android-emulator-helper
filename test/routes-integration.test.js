@@ -157,7 +157,7 @@ test('the inventory route answers option lists the form fields can consume', asy
   await fixture.dispose()
 })
 
-test('every one of the 17 fields arrives as a live Cordis reference', async () => {
+test('every one of the 18 fields arrives as a live Cordis reference', async () => {
   const fixture = await mount()
   assert.deepEqual(Object.keys(fixture.refs), FIELD_KEYS)
   for (const key of FIELD_KEYS) {

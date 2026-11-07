@@ -140,6 +140,34 @@ test('exports the host half and the client bundle', () => {
   assert.equal(manifest.type, 'module')
 })
 
+test('the Settings rail icon ships as a published package asset', () => {
+  // A client bundle cannot read its own package, so the rail artwork is a file
+  // the Host serves: `require.asset` turns `<package>/assets/<path>` into the
+  // page's URL, and the Host resolves that path through this package's own
+  // `exports`. A missing export or a misspelled file answers 404 and leaves the
+  // rail item blank, so the file, the export and the reference are pinned
+  // together rather than left to a rendering test to notice.
+  assert.equal(manifest.exports['./assets/*'], './lib/assets/*', 'the asset export the Host resolves through')
+  const source = readFileSync(path.join(ROOT, 'lib', 'client.js'), 'utf8')
+  assert.match(source, /require\.asset\(/, 'the bundle reaches it through the asset lookup')
+  assert.ok(!/<path d="/.test(source), 'no glyph geometry lives in the bundle')
+
+  const referenced = [
+    ...new Set([...source.matchAll(/assets\/([A-Za-z0-9][\w.-]*\.svg)/g)].map((match) => match[1])),
+  ]
+  assert.deepEqual(referenced, ['android-head.svg'], 'the bundle references exactly the shipped artwork')
+  for (const name of referenced) {
+    const file = path.join(ROOT, 'lib', 'assets', name)
+    assert.ok(existsSync(file), `lib/assets/${name} is missing`)
+    const svg = readFileSync(file, 'utf8')
+    assert.ok(svg.length < 256 * 1024, `${name} must stay small enough to serve whole`)
+    assert.match(svg, /^<svg [^>]*viewBox="0 0 1024 1024"/, `${name} keeps the glyph's own grid`)
+    // The mark is drawn as a mask over the rail colour, so any opaque backdrop —
+    // the supplied file's white tile, for instance — would mask the whole box.
+    assert.ok(!/fill="#(?:fff|ffffff)"/i.test(svg), `${name} must not paint a background`)
+  }
+})
+
 test('declares the bundle patch and a web client half', () => {
   assert.equal(manifest.dsh.manifestVersion, 1)
   assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml')

@@ -46,6 +46,7 @@ test('defaults are used when nothing is configured', () => {
   assert.equal(settings.logTailLines, 500)
   assert.equal(settings.sdkPath, '')
   assert.equal(settings.systemImageAbi, '')
+  assert.equal(settings.showInSettings, false)
 })
 
 test('a volatile reference is read fresh on every projection', () => {
@@ -87,6 +88,10 @@ test('a malformed number falls back instead of reaching the providers', () => {
 test('a non-boolean setting keeps the declared default', () => {
   assert.equal(readSettings({ autoStartEmulator: { get: () => 'yes' } }, {}).autoStartEmulator, true)
   assert.equal(readSettings({ autoStartEmulator: { get: () => false } }, {}).autoStartEmulator, false)
+  // `showInSettings` is the one boolean whose default is false, so a live false
+  // must survive the projection rather than be mistaken for "nothing stored".
+  assert.equal(readSettings({ showInSettings: { get: () => 'yes' } }, {}).showInSettings, false)
+  assert.equal(readSettings({ showInSettings: { get: () => false } }, {}).showInSettings, false)
 })
 
 test('the system image package follows the API level, variant and ABI', () => {

@@ -9,14 +9,15 @@ A DSH (DeepSeek Harness) plugin: a **host half** (`lib/index.js` and
 `lib/providers/**`) that registers 23 `android_*` tools, one embedded skill, one
 slash command and two configuration-page Fetch routes, plus a **client half**
 (`lib/client.js`) that is a hand-written classic script rendering the plugin's
-parameter page on the **Plugins page**. `lib/**` is committed on purpose — the
-browser bundle is written, not generated.
+parameter page on the **Plugins page**, and, while the `showInSettings` switch is
+on, the same page as a section in the **Settings** dialog. `lib/**` is committed
+on purpose — the browser bundle is written, not generated.
 
 ## Commands
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 357 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 367 tests: unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -62,11 +63,12 @@ dsh-android-emulator-helper/
 ├── locale/zh.json          # the Simplified Chinese pair
 ├── lib/
 │   ├── index.js            # host half: tools, skill, command and the two Fetch routes
-│   ├── client.js           # browser half: a hand-written __ModuleLoader__ bundle, the plugin's page in the Plugins panel
+│   ├── client.js           # browser half: the hand-written __ModuleLoader__ bundle, the Plugins page plus its optional Settings section
 │   ├── settings.js         # field declarations, the schemastery Config (every field .volatile()), live reads
 │   ├── runtime.js          # one runtime per call: session cwd + live settings → data directory
 │   ├── tools/index.js      # the 23 defineTool definitions, argument/result schemas, image admission
 │   ├── providers/          # ported from the original plugin file by file, now taking an explicit runtime
+│   ├── assets/             # the Settings rail icon, published as `./assets/*` for the Host's asset route
 │   └── util/               # process execution, paths, content blocks, Windows registry/drive discovery, Java properties
 ├── skills/android-dev/     # SKILL.md + INSTALL_ENVIRONMENT.md
 ├── scripts/                # check-bundle.mjs (consistency gate), smoke.mjs (real-machine), verify-mount.mjs
@@ -79,9 +81,10 @@ Four constraints shape that layout:
 
 1. **The settings namespace has exactly one source of truth**: the profile patch
    row id. The `id` in `cordis.patch.yml`, `SETTINGS_NAMESPACE` in
-   `lib/settings.js` and the literal in `lib/client.js` must agree;
-   `scripts/check-bundle.mjs` verifies them, and also that the host and client
-   field tables have not drifted apart.
+   `lib/settings.js` and the literal in `lib/client.js` must agree, the optional
+   `settings.section` entry and its icon contribution carry that same id, and
+   `scripts/check-bundle.mjs` verifies all of it plus the fact that the host and
+   client field tables have not drifted apart.
 2. **The browser half cannot reach the host half**: the host half is Node ESM
    running inside the host process, so it does not exist in the browser realm
    for the bundle to import. The field table is therefore written twice and
@@ -100,17 +103,24 @@ Four constraints shape that layout:
    either omission degrades silently to showing the raw package name. `en.json`
    is also the switch that enables every other language file, so it cannot be
    dropped in favour of `zh.json`.
-4. **A plugin's own configuration belongs on the Plugins page**: DSH 0.2.x
-   expects a plugin that owns a page to register it into the Plugins page's
-   `plugins.bundle.config` keyed slot. `settings.section` still exists and still
-   renders third-party entries, but registering there as well would give the
-   plugin two configuration pages — one in the Settings dialog and one on its
-   plugin detail — which is exactly what this migration removed. The slot is
-   keyed by the **BUNDLE's package name** — a different string from the settings
-   namespace — and the page renders the entry inside the plugin detail, between
-   the package description and the component rows. The browser half exports
-   `PLUGIN_SURFACE` so `scripts/check-bundle.mjs` can pin the slot and the key
-   against `package.json`.
+4. **A plugin's own configuration belongs on the Plugins page, and only
+   optionally in Settings**: DSH 0.2.x expects a plugin that owns a page to
+   register it into the Plugins page's `plugins.bundle.config` keyed slot, and
+   that registration is unconditional. The page may **also** register a
+   `settings.section` entry, but only behind the explicit `showInSettings`
+   switch, whose default is off: the section and its icon are registered while
+   the saved value is true and disposed when it goes false, so a profile that
+   never touches the switch keeps exactly one configuration page, and turning
+   the switch on adds a deliberate second placement rather than a duplicate
+   nobody asked for. The icon must contribute to `settings.section.icon` with an
+   `id` equal to the section's, because the shell pairs the two by that id. The
+   `plugins.bundle.config` slot is keyed by the **BUNDLE's package name**, a
+   different string from the settings namespace, and the page renders the entry
+   inside the plugin detail, between the package description and the component
+   rows. The browser half exports `PLUGIN_SURFACE` and `SETTINGS_SURFACE` so
+   `scripts/check-bundle.mjs` can pin every slot, key and id against
+   `package.json`, and the three registrations read those exports rather than
+   repeating the literals.
 
 ## The two halves share a contract, not code
 
@@ -145,20 +155,27 @@ What the bundle may `require` is a run-time rule, not a build-time import
 graph. The shell's module table answers a platform seed word, an
 already-materialized module or another plugin's registered client bundle, and
 throws for anything else — a client bundle has no filesystem fallback, so it
-cannot reach a file of its own package either. A row may not declare its own
+cannot reach a file of its own package by `require`. The one sanctioned way
+through is a package asset: declare the file under the `"./assets/*"` export and
+`require.asset(...)` compiles it into a URL the page can fetch (the Settings rail
+icon does exactly that). A row may not declare its own
 package in `dsh.client.external`. The policy the rule enforces is that
 cross-plugin value imports are forbidden and cross-plugin collaboration goes
 through cordis services; a build step would bridge the two realms, but this
 repository still commits a hand-written browser bundle and has no build step, so
 the duplication stands.
 
-The plugin's **name** now has one source: `locale/en.json` and `locale/zh.json`,
-which both the plugin list and the plugin detail page read. The Settings-era
-heading and nav label are gone with the Settings section, so there is no second
-copy in `lib/client.js` for the gate to compare — and the exported `PAGE_META`
-that existed only for that comparison is gone too. The name still appears in the
-two READMEs and in the marketplace copy, so a rename is a documentation change
-plus the two dictionaries.
+The plugin's **name** has one source: `locale/en.json` and `locale/zh.json`,
+which both the plugin list and the plugin detail page read, so a rename is a
+documentation change plus the two dictionaries. The Settings rail label is a
+different string: it is the `sectionNav` key of the bundle's own fixed
+dictionary ("Android emulator" / "Android 模拟器"), deliberately shorter than the
+plugin name because the 188px rail truncates, and `scripts/check-bundle.mjs`
+requires it to resolve to an entry of that dictionary. It labels the section and
+is not a second copy of the name, so the name itself is still not written into
+`lib/client.js`; the `PAGE_META` export that existed only to compare the
+Settings-era heading is gone. The name still appears in the two READMEs and in
+the marketplace copy.
 
 ## The DSH requirement is one range, declared three times
 
@@ -223,9 +240,12 @@ them against the source. Keep these honest, and re-derive them after a change:
 
 - the tool count in the READMEs and in `lib/tools/index.js`,
 - the test count printed by `pnpm test`,
-- the settings table (key, kind, default, group) against `lib/settings.js`,
+- the settings table (key, kind, default, group) against `lib/settings.js`, and
+  the 18 fields in 6 groups both READMEs state,
 - the slot and key the browser half registers into against `PLUGIN_SURFACE` and
-  `package.json`'s name,
+  `package.json`'s name, and the optional `settings.section` entry and its
+  `settings.section.icon` contribution against `SETTINGS_SURFACE`, the
+  `showInSettings` switch that gates them and the nav label they render,
 - the two route paths against `lib/index.js`,
 - the DSH range against the three places that declare it,
 - the icon against the format and size `dsh-app-boot` admits,
@@ -252,8 +272,10 @@ not one of the four stays out of the repository like every other run artifact.
 
 The four are currency, not history: a change to the page's layout, or to any
 label inside a shot, means all four are re-captured before the next release, and
-the sentence in both READMEs that dates them is updated with them. Nothing fails
-if they rot — the market simply shows a page that no longer exists.
+the sentence in both READMEs that dates them is updated with them. Until the
+re-capture lands, both READMEs say what the shots predate, so the gap is stated
+rather than implied. Nothing fails if they rot — the market simply shows a page
+that no longer exists.
 
 ## The configuration page's rhythm is deliberate
 
@@ -264,7 +286,11 @@ card is `12px 16px` with no bottom padding on its last field; cards sit 16px
 apart. The field and card-to-card steps are the sibling ios-simulator plugin's,
 so the two configuration pages read the same; only the card's closing padding is
 this page's own, larger than that page's because the closing here is a hint
-rather than a control. Tune any of it and the page either sprawls or cramps.
+rather than a control. Tune any of it and the page either sprawls or cramps. The
+optional Settings section renders the same form, and the shell supplies what the
+Plugins page's host supplied there: the section chrome and a 24px inline content
+padding, 16px on a narrow viewport. The form contributes no page padding of its
+own in either placement, so the same rhythm carries into both.
 
 Every paragraph must state its own `margin`. The bundle is compiled on its own,
 so it cannot rely on a bare-element reset from wherever it is mounted, and the
@@ -313,6 +339,28 @@ colour, and taking alpha from unmixing against that colour. Both shortcuts fail
 visibly: a blunt erode grows the eyes into black crescents, and a colour
 threshold for the core cuts through the head's own shading and leaves flat
 patches.
+
+The Settings rail's own icon is supplied artwork rather than a drawing of this
+repository's, and it ships as a file: `lib/assets/android-head.svg`, published
+by the `"./assets/*": "./lib/assets/*"` export in `package.json`. A client
+bundle cannot read its own package, so `AndroidIcon` references the file through
+`require.asset("<package>/assets/android-head.svg")` — the Host resolves that
+path against this package's own manifest and serves the bytes at
+`/plugins/<package>/assets/<path>`. The file, the export and the reference are
+therefore pinned together by `test/manifest.test.js`: a missing export or a
+misspelled file answers 404 and leaves the rail item blank.
+
+The artwork is a bold-outline Android head: one path whose second subpath knocks
+the face out and whose two dot eyes are filled back in. The rail paints the icon
+in the nav item's own colour, so the file is used as a CSS mask over
+`currentColor` rather than as an `<img>` — an image freezes the file's own ink
+and vanishes in whichever theme it does not match. A mask takes whatever colour
+the item resolves, which is also why the active state needs no second artwork.
+
+Two consequences: the file must stay an alpha silhouette — the supplied white
+background tile is gone, because an opaque backdrop would mask the whole box —
+and its `viewBox` stays `0 0 1024 1024`, where the artwork is centred and
+renders 13.7 px of the 16 px slot, the fill the shell's own icons use.
 
 `dsh-app-boot` resolves `package.json.icon` to a regular file inside the package
 directory, admits SVG, PNG, JPEG and WebP only, caps it at 256 KiB, and inlines
@@ -369,10 +417,10 @@ see a type error at all.
 | Layer | Command | What it proves |
 |---|---|---|
 | Unit and parsers | `pnpm test` | Bundle load contract, manifest and patch contract, settings projection (live volatile reads, env fallback, out-of-range fallback), every ported parser (`adb devices`, `emulator -list-avds`, UI Automator XML, `input text` escaping, APK selection, JDK major normalisation), the SDK `adb` fallback search, and the lossless-JSON projection |
-| Configuration page render | `pnpm test` (`client-render.test.js`) | The whole form rendered with real React and `react-dom/server`: the registration targets `plugins.bundle.config` keyed by the package name and nothing else, every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, the override badge and reset, both route buttons, no title of its own, and no action bar while nothing is staged |
-| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, the exported plugin surface is the Plugins page's `plugins.bundle.config` keyed by the package name **and the registration itself reads that exported surface rather than repeating the literals** (and the bundle registers into no Settings section, in either quote style), the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, every field's kind is one the page actually renders (checked against the `RENDERERS` map's own keys, not just against the exported list), every `suggest` names a list the page provides (and a `discovery` field must carry one, because its dropdown has no other source), the two fixed dictionaries carry the same keys and every declared option label sits under the exact `field.<key>.option.<optionKey(value)>` key the page looks up, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
-| Route integration | `test/routes-integration.test.js` | The two configuration routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 17 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing both routes |
-| Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, **all 23 dispatched through the registry**, every argument schema enforced by the registry, every declared result schema validated for shape (device-backed tools fail before a value exists), malformed arguments refused, unknown names unresolved, 17 volatile fields, full unregistration on dispose |
+| Configuration page render | `pnpm test` (`client-render.test.js`) | The whole form rendered with real React and `react-dom/server`: with the switch off the only registration is `plugins.bundle.config` keyed by the package name and no Settings slot is injected, with it on the bundle also registers `settings.section` and its `settings.section.icon` contribution, the section's id, order, locale and nav label resolve, the icon is the exact component registered into `settings.section.icon` and renders as a masked box over `currentColor` whose mask points at the published package asset, identical in both states, toggling the switch back off disposes both, every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, the override badge and reset, both route buttons, no title of its own, and no action bar while nothing is staged |
+| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, exactly three slot registrations exist and each takes its slot name from `PLUGIN_SURFACE` or `SETTINGS_SURFACE` instead of repeating a literal, the Plugins page entry is keyed by the package name and carries no id, the Settings section takes its id, order, label thunk and locale from the surface, the icon takes the same id as its section, and `settings.section` / `settings.section.icon` appear nowhere outside `SETTINGS_SURFACE`; the gate then mounts the real `apply` to observe the switch, requiring no Settings registration and no Settings slot injection while it is off, both entries with a label that resolves to an entry of the bundle's own dictionary while it is on, and both disposed once it is saved off; the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, every field's kind is one the page actually renders (checked against the `RENDERERS` map's own keys, not just against the exported list), every `suggest` names a list the page provides (and a `discovery` field must carry one, because its dropdown has no other source), the two fixed dictionaries carry the same keys and every declared option label sits under the exact `field.<key>.option.<optionKey(value)>` key the page looks up, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
+| Route integration | `test/routes-integration.test.js` | The two configuration routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 18 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing both routes |
+| Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, **all 23 dispatched through the registry**, every argument schema enforced by the registry, every declared result schema validated for shape (device-backed tools fail before a value exists), malformed arguments refused, unknown names unresolved, 18 volatile fields, full unregistration on dispose |
 | Type gate | `tsc -p tsconfig.json --noEmit` and `tsc -p tsconfig.client.json --noEmit` | The host half's contracts against the real `@deepseek-ai/*` declarations, and the browser half's contracts against the real `react` and the real `dsh-client-ui-primitives` declarations — the two halves checked apart, because they run in different realms |
 
 The type gate is a command of its own: `pnpm run typecheck` runs the two
@@ -545,9 +593,12 @@ behaviour and will report the bugs this version fixed.
 - Commit run artifacts: `.tmp-*/` scratch trees, screenshots, build logs,
   `.gradle/`, `*.tgz`, coverage. `assets/` and `screenshots.json` are the one
   curated exception, and only the four files the gallery names.
-- Register the plugin's configuration page in the Settings dialog
-  (`settings.section`) again: plugin-owned pages belong on the Plugins page, and
-  a second registration there would give the plugin two configuration pages.
+- Register a Settings entry that is not gated by the `showInSettings` switch.
+  The unconditional registration is the Plugins page's `plugins.bundle.config`;
+  a `settings.section` entry and its `settings.section.icon` may exist only
+  while that saved switch is on, so a profile that never enables it keeps
+  exactly one configuration page, and both Settings registrations take their
+  slot names and their shared id from `SETTINGS_SURFACE`.
 - Describe behaviour in the READMEs that the source does not implement.
 - Replace the direct `spawn` with DSH's subprocess seam. `gradlew`, `adb` and
   `emulator` behaving byte-for-byte as they did in the original is the reason the

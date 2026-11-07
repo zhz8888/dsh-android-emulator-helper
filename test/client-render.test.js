@@ -8,13 +8,19 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { ROOT, loadBundle } from './helpers/load-bundle.mjs'
 
 /**
- * Render the plugin's Plugins-page configuration form with real React.
+ * Render the plugin's configuration page with real React.
  *
  * The form is the artifact a port most easily gets wrong: a missing dictionary
  * key, a field the host never sends, an `inject` face that does not match what
  * the slot renderer calls, or an uncontrolled input. Rendering it through
  * `react-dom/server` turns all of those into a failing test instead of a broken
  * plugin detail page.
+ *
+ * The same suite covers the optional Settings entry: with the page's own switch
+ * off the mount must touch the Settings surface not at all, and with it on the
+ * bundle must register a `settings.section` entry and its
+ * `settings.section.icon` contribution, then dispose both when it goes off
+ * again.
  *
  * React is real. `@deepseek-ai/dsh-client-ui-primitives` is doubled, because the
  * shipped package is a browser bundler input (`*.module.css`, `simple-icons`,
@@ -43,16 +49,19 @@ test('the configuration form renders without throwing', () => {
   assert.ok(report.markup.length > 1000, 'the form must render real markup')
 })
 
-test('the form registers into the plugin detail page, not the Settings page', () => {
+test('the plugin page is registered unconditionally, and the Settings entry only when asked for', () => {
   // A plugin's own configuration belongs on the Plugins page: the
   // `plugins.bundle.config` slot is keyed by the BUNDLE's package name, and the
-  // page renders the entry inside the plugin detail. `settings.section` still
-  // renders, but registering there as well would give the plugin two
-  // configuration pages — this form must name exactly one slot.
+  // page renders the entry inside the plugin detail. The Settings dialog's
+  // `settings.section` is opt-in, so the default mount must not touch it at
+  // all — one injected slot, one registration, and no label or id on the entry
+  // the Plugins page draws the chrome for.
   assert.equal(report.registered.slot, 'plugins.bundle.config')
   assert.equal(report.registered.key, '@zhz8888/dsh-android-emulator-helper')
   assert.equal(report.registered.locale, 'settings.androidEmulatorHelper')
   assert.deepEqual(report.registered.slots, ['plugins.bundle.config'])
+  assert.deepEqual(report.disabled.slots, ['plugins.bundle.config'], 'no Settings slot is injected while the switch is off')
+  assert.deepEqual(report.disabled.registered, ['plugins.bundle.config'], 'and no Settings entry is registered')
 })
 
 test('the injected face carries the form actions and the view the page asks for', () => {
@@ -72,6 +81,90 @@ test('the injected face carries the form actions and the view the page asks for'
   ])
 })
 
+test('with the switch saved on, the form is also a Settings section', () => {
+  // The switch is a live setting, so publishing it is what a landed save does:
+  // both registrations must appear, and the section must describe itself the
+  // way the Settings navigation needs it — same id as the icon, its own order,
+  // the page's dictionary namespace and a resolved nav label.
+  const { section, icon } = report.settings
+  assert.equal(section.name, 'settings.section')
+  assert.equal(section.id, 'android-emulator-helper')
+  assert.equal(section.order, 100)
+  assert.equal(section.locale, 'settings.androidEmulatorHelper')
+  assert.equal(section.label, 'Android emulator', 'the nav label comes from the bundle dictionary')
+  assert.equal(icon.name, 'settings.section.icon')
+  assert.equal(icon.id, section.id, 'the shell pairs a section with its icon by id')
+  assert.deepEqual(
+    report.settings.injected,
+    ['plugins.bundle.config', 'settings.section.icon', 'settings.section'],
+    'the plugin page keeps its slot, and both Settings contributions are injected',
+  )
+})
+
+test('the Settings section renders the same form and the same face as the plugin page', () => {
+  // The section is not a second form: it is the same component over the same
+  // controller, so a save made from Settings is staged and written exactly as
+  // one made from the plugin detail page.
+  assert.equal(report.settings.sameComponent, true, 'the section renders the plugin page component')
+  assert.equal(report.settings.sameHookStore, true, 'and reads the same snapshot store')
+  assert.deepEqual(report.settings.section.injectKeys, report.settings.pluginPageInjectKeys)
+  for (const heading of [
+    'SDK and toolchain',
+    'Emulator and devices',
+    'API level and system image',
+    'Build',
+    'Output and logs',
+    'Interface',
+    'Diagnostics and discovery',
+  ]) {
+    assert.ok(report.settingsMarkup.includes(heading), `the Settings section is missing the group heading: ${heading}`)
+  }
+  assert.match(report.settingsMarkup, /Show in Settings/)
+  assert.match(report.settingsMarkup, /Changes are saved to this profile and take effect on the next tool call\./)
+  assert.equal(
+    report.settingsMarkup,
+    report.markupEnabled,
+    'the same component over the same live value renders the same form',
+  )
+})
+
+test('the Settings icon is the supplied Android glyph, published as a package asset', () => {
+  // The rail paints a section's `settings.section.icon` contribution in the nav
+  // item's own colour, and a client bundle cannot read its own package: the
+  // artwork is a file the Host serves at the asset route, referenced through
+  // `require.asset` and drawn as a mask so it takes that colour. No glyph
+  // geometry may live in the bundle — that is the point of publishing it.
+  const { inactive, active } = report.icon
+  assert.equal(report.icon.registered, true, 'the registered contribution is the exported component')
+
+  for (const markup of [inactive, active]) {
+    assert.match(markup, /^<span /, 'the icon is a masked box, not an inline glyph')
+    assert.match(markup, /background-color:currentColor/, 'the mark takes the nav item colour')
+    assert.match(markup, /-webkit-mask:/, 'the prefixed mask reaches older renderers')
+    assert.match(markup, /mask:/, 'and the standard property is present too')
+    assert.match(
+      markup,
+      /plugins\/@zhz8888\/dsh-android-emulator-helper\/assets\/android-head\.svg/,
+      'the artwork is a package asset, referenced by its published path',
+    )
+    assert.match(markup, /width:16px;height:16px/, 'the rail size is honoured')
+    assert.match(markup, /aria-hidden="true"/, 'the mark is decoration')
+    assert.ok(!/<path d="/.test(markup), 'no glyph geometry lives in the bundle')
+  }
+
+  // The active state is the rail's own colour on the same mask, so the component
+  // deliberately renders one mark rather than two.
+  assert.equal(active, inactive, 'both states are the same masked artwork')
+})
+
+test('the Settings entry follows the switch without a reload', () => {
+  // Publishing the switch back off is what a saved-off value looks like to a
+  // subscriber: both contributions dispose, and the plugin page is untouched.
+  assert.equal(report.toggled.sectionDisposed, true, 'the section disposer runs')
+  assert.equal(report.toggled.iconDisposed, true, 'the icon disposer runs')
+  assert.deepEqual(report.toggled.remaining, ['plugins.bundle.config'], 'only the plugin page stays registered')
+})
+
 test('every field group is rendered with its heading and hint', () => {
   for (const heading of [
     'SDK and toolchain',
@@ -79,6 +172,7 @@ test('every field group is rendered with its heading and hint', () => {
     'API level and system image',
     'Build',
     'Output and logs',
+    'Interface',
   ]) {
     assert.ok(report.markup.includes(heading), `missing group heading: ${heading}`)
   }
@@ -109,12 +203,12 @@ test('the switch sits in a right-hand column, with its label and hint on the lef
   assert.ok(text.indexOf('aemh_fieldRowText') < text.indexOf('aemh_fieldRowControl'))
   assert.ok(text.indexOf('aemh_fieldRowText') < text.indexOf('role="switch"'))
 
-  // Only the one boolean field is a row; every text input, select and textarea
-  // keeps the full-width stacked frame so a 100%-wide control still reads
-  // naturally under its label.
-  assert.equal((report.markup.match(/aemh_fieldRow"/g) ?? []).length, 1, 'exactly one switch row')
+  // The two boolean fields (`autoStartEmulator` and `showInSettings`) are rows;
+  // every text input, select and textarea keeps the full-width stacked frame so
+  // a 100%-wide control still reads naturally under its label.
+  assert.equal((report.markup.match(/aemh_fieldRow"/g) ?? []).length, 2, 'two switch rows')
   assert.ok(
-    (report.markup.match(/<div class="aemh_field">/g) ?? []).length >= 15,
+    (report.markup.match(/<div class="aemh_field">/g) ?? []).length >= 16,
     'the other sixteen fields keep the stacked frame',
   )
 })
@@ -203,7 +297,8 @@ test('the page binds only the namespace it owns', () => {
 
 test('a host that does not serve the namespace renders no form at all', () => {
   // The registration hangs off `whileServed`, so a deployment without the host
-  // half must not leave a slot entry behind.
+  // half must not leave a slot entry behind — and it cannot reach a Settings
+  // entry either.
   assert.equal(report.unserved.component, false, 'no component when the namespace is not served')
   assert.deepEqual(report.unserved.slots, [], 'no slot may be injected when the namespace is not served')
 })
@@ -227,14 +322,14 @@ test('the staged and non-ready states render their own copy, not raw keys', () =
   }
 })
 
-test('the form draws no title of its own; the plugin detail page owns the chrome', () => {
+test('the form draws no title of its own; the host page owns the chrome', () => {
   // The page draws the plugin's title, icon, crumb and description above this
-  // section. Repeating any of that here would render the plugin's name twice on
-  // one screen, so the form contributes an effect note and the category cards.
+  // section — and the Settings shell draws the section's own chrome — so the
+  // form repeats none of it: it contributes an effect note and the cards.
   assert.ok(!report.markup.includes('Android Emulator Helper'), 'the form must not repeat the plugin title')
   assert.ok(!/<h[12]\b/.test(report.markup), 'the form must start at section headings')
   assert.match(report.markup, /Changes are saved to this profile and take effect on the next tool call\./)
-  assert.equal((report.markup.match(/aemh_group"/g) ?? []).length >= 6, true, 'five field cards plus the tools card')
+  assert.equal((report.markup.match(/aemh_group"/g) ?? []).length >= 7, true, 'six field cards plus the tools card')
 })
 
 test('the action bar stays out of the form while nothing is staged', () => {
@@ -251,6 +346,8 @@ test('no unresolved dictionary key leaks into the markup', () => {
   // a typo in one of the generated keys would look like.
   assert.ok(!/field\.[A-Za-z]+/.test(report.markup), 'an unresolved field key leaked into the markup')
   assert.ok(!/group\.[A-Za-z]+/.test(report.markup), 'an unresolved group key leaked into the markup')
+  assert.ok(!/field\.[A-Za-z]+/.test(report.settingsMarkup), 'an unresolved field key leaked into the Settings section')
+  assert.ok(!/group\.[A-Za-z]+/.test(report.settingsMarkup), 'an unresolved group key leaked into the Settings section')
 })
 
 /**
@@ -320,13 +417,15 @@ function settingsTextField(field) {
 }
 
 /**
- * Mount the real `apply` over a browser context that records its registration.
+ * Mount the real `apply` over a browser context that records its registrations.
  *
  * Every service is the minimum the half touches; the shared model comes from
- * `primitives`, which is what the test varies.
+ * `primitives`, which is what the test varies. The registrations are held as a
+ * list because a mount makes more than one once the optional Settings entry is
+ * enabled, so the plugin-page entry is looked up by its slot name.
  */
 function mountWith(primitives) {
-  const record = { entry: undefined, component: undefined, warnings: [], applyError: undefined }
+  const record = { registrations: [], pluginPage: undefined, warnings: [], applyError: undefined }
   const { exported } = loadBundle({
     resolve: (specifier) => {
       if (specifier === 'react') return React
@@ -334,23 +433,23 @@ function mountWith(primitives) {
       throw new Error('unexpected require: ' + specifier)
     },
   })
+  const scope = fakeScope()
   const ctx = {
     configForms: {
-      get: () => fakeScope(),
+      get: () => scope,
       whileServed: (namespaces, register) => {
         const disposer = register(new Set(namespaces))
         return typeof disposer === 'function' ? disposer : () => {}
       },
     },
-    locale: { register: () => () => {} },
+    locale: { register: () => () => {}, bind: () => (key) => key },
     slots: {
       inject: (name, callback) => {
         void name
         return callback()
       },
       register: (entry, component) => {
-        record.entry = entry
-        record.component = component
+        record.registrations.push({ entry, component })
         return () => {}
       },
     },
@@ -367,6 +466,7 @@ function mountWith(primitives) {
   } catch (error) {
     record.applyError = error
   }
+  record.pluginPage = record.registrations.find((registration) => registration.entry.name === 'plugins.bundle.config')
   return record
 }
 
@@ -376,8 +476,8 @@ test('the override state comes from the public snapshot, not the model internals
   // may rename them. A model without them must still produce a working page.
   const record = mountWith({ SettingsFormModel: PublicOnlyModel, settingsTextField })
   assert.equal(record.applyError, undefined, 'apply must survive a model with only the public API')
-  assert.ok(record.component !== undefined, 'the page must still be registered')
-  const face = record.entry.inject()
+  assert.ok(record.pluginPage !== undefined, 'the page must still be registered')
+  const face = record.pluginPage.entry.inject()
   assert.deepEqual(Object.keys(face).sort(), [
     'discard',
     'edit',
@@ -388,7 +488,7 @@ test('the override state comes from the public snapshot, not the model internals
     'save',
   ])
   const projection = face.hooks.androidEmulatorSettings.getSnapshot()
-  assert.equal(Object.keys(projection.fields).length, 17, 'the projection carries every declared field')
+  assert.equal(Object.keys(projection.fields).length, 18, 'the projection carries every declared field')
 })
 
 test('a model that cannot be built leaves a readable page instead of no page', () => {
@@ -398,10 +498,10 @@ test('a model that cannot be built leaves a readable page instead of no page', (
   const record = mountWith({ SettingsFormModel: ThrowingModel })
   assert.equal(record.applyError, undefined, 'apply must not throw when the shared model cannot be built')
   assert.equal(record.warnings.length, 1, 'the failure is logged')
-  assert.ok(record.component !== undefined, 'a page must still be registered')
-  assert.deepEqual(Object.keys(record.entry.inject()), ['hooks'], 'the failed page injects no form face')
+  assert.ok(record.pluginPage !== undefined, 'a page must still be registered')
+  assert.deepEqual(Object.keys(record.pluginPage.entry.inject()), ['hooks'], 'the failed page injects no form face')
   const t = (key) => (key === 'formFailed' ? 'FORM FAILED' : key)
-  const markup = renderToStaticMarkup(React.createElement(record.component, { t, view: 'page' }))
+  const markup = renderToStaticMarkup(React.createElement(record.pluginPage.component, { t, view: 'page' }))
   assert.match(markup, /FORM FAILED/, 'the page says the form could not be loaded')
 })
 

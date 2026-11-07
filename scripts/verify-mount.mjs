@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolRuntime, validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import * as plugin from '../lib/index.js'
+import { FIELD_KEYS } from '../lib/settings.js'
 
 /** Repository root, so the scratch data directory is anchored to the project. */
 const ROOT = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
@@ -240,7 +241,11 @@ check('an unknown tool name does not resolve', unknown.isError === true, unknown
 const schema = plugin.Config.toJSON()
 const root = schema.refs[schema.uid]
 const volatileFields = Object.values(root.dict).filter((ref) => schema.refs[ref].meta.volatile === true)
-check('every settings field is volatile (so the settings form can serve it)', volatileFields.length === 17, volatileFields.length)
+check(
+  'every settings field is volatile (so the settings form can serve it)',
+  volatileFields.length === FIELD_KEYS.length,
+  `${volatileFields.length}/${FIELD_KEYS.length}`,
+)
 
 // ── disposal removes the tools again ─────────────────────────────────────────
 await pluginFiber.dispose()

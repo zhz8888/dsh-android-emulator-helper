@@ -6,10 +6,11 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![target: DSH](https://img.shields.io/badge/DSH-%3E%3D0.2.1--rc.2-blue.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
 
-把 ZCode 官方 `android-emulator@0.1.0` 插件移植为 **DSH（DeepSeek Harness）原生插件**：原有 23 个 MCP 工具全部保留为 DSH 原生工具，并新增一个**参数表单**，渲染在「插件」页该插件的详情页里（插件 → 已安装插件 → Android 模拟器助手），让 SDK、模拟器、系统镜像、构建与输出目录等参数在应用里配置，而不是靠环境变量。
+把 ZCode 官方 `android-emulator@0.1.0` 插件移植为 **DSH（DeepSeek Harness）原生插件**：原有 23 个 MCP 工具全部保留为 DSH 原生工具，并新增一个**参数表单**，渲染在「插件」页该插件的详情页里（插件 → 已安装插件 → Android 模拟器助手），让 SDK、模拟器、系统镜像、构建与输出目录等参数在应用里配置，而不是靠环境变量；打开并保存 **在「设置」中显示** 开关后，同一张表单也会作为一节出现在「设置」对话框里，并带有自己的 Android 描线图标。
 
 - 工具名、参数名与原插件完全一致，为原 `android_emulator` MCP 服务器写的工作流可直接迁移；这次移植既不新增工具，也不删除工具。
-- 5 组 17 个设置项，全部实时生效；原插件暴露的 7 个字段仍会回落到同名 `ANDROID_PLUGIN_*` 变量，再回落到内置默认值。
+- 6 组 18 个设置项，全部实时生效；原插件暴露的 7 个字段仍会回落到同名 `ANDROID_PLUGIN_*` 变量，再回落到内置默认值。
+- 参数页默认只出现在插件自己的详情页；最后一组里的 **在「设置」中显示** 开关会把同一张表单也加进 **设置** 对话框的导航，图标是一枚 Android 描线头像。该开关默认关闭，因此全新 profile 只有一个配置页。
 - 默认 AVD 从下拉框里选，列出本机仍有 payload 的 AVD：AVD 探测既扫描 AVD 目录（`ANDROID_AVD_HOME`，否则 `$ANDROID_USER_HOME/avd`，否则 `~/.android/avd`），也询问 `emulator -list-avds`，因此即使 emulator 无法启动，列表依然可用。
 - `android_preflight` 与参数页的 **检测环境** 按钮跑同一套检查——SDK、`adb`、`emulator`、AVD、JDK、Gradle——并逐条给出修复建议。
 - 包名为 `@zhz8888/dsh-android-emulator-helper`；插件页显示的是 `locale/` 里的本地化名称 **Android Emulator Helper** / **Android 模拟器助手**，而不是原始包名，两条描述都写明本插件非官方、与 Google 无隶属关系。
@@ -64,7 +65,7 @@
 dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper
 ```
 
-**DSH Desktop**：`desktop` profile 由 Electron 应用独占管理——请在 **插件** 页里添加 `@zhz8888/dsh-android-emulator-helper`，并启用它创建的那一行。重载或重启后，打开 **插件 → 已安装插件 → Android 模拟器助手**：参数表单就在该插件的详情页里，且只有当 host 半侧真正提供该设置命名空间时它才会出现。
+**DSH Desktop**：`desktop` profile 由 Electron 应用独占管理——请在 **插件** 页里添加 `@zhz8888/dsh-android-emulator-helper`，并启用它创建的那一行。重载或重启后，打开 **插件 → 已安装插件 → Android 模拟器助手**：参数表单就在该插件的详情页里，且只有当 host 半侧真正提供该设置命名空间时它才会出现。打开并保存 **在「设置」中显示** 后，同一张表单也会作为一节出现在「设置」对话框里。
 
 发布包内含插件需要的一切——host 半侧、浏览器 bundle、内置 skill 与 `locale/` 词条——且安装期不编译任何东西，因此没有构建审批环节。`@deepseek-ai/cordis`、`@deepseek-ai/dsh-tools`、`@deepseek-ai/schemastery` 都是**由宿主提供的 peer 依赖**，插件不会带入第二份副本，本身**没有任何运行时依赖**；DSH 的兼容性闸门会拿 `@deepseek-ai/dsh*` 的 peer 区间与运行版本比对，不匹配直接拒装。
 
@@ -94,7 +95,7 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 
 ## 配置页面
 
-配置命名空间 = profile patch 行 id = `android-emulator-helper`（同时是 `dsh.name`）。表单注册到插件页的 `plugins.bundle.config` 槽、以包名为键，因此渲染在「插件」页该插件的详情页里，而不是「设置」对话框里；只有当 host 半侧提供该命名空间时它才存在。表单通过 `ctx.configForms` 读写，因此暂存编辑、脏值检测、内联校验、乐观并发（revision）与「已覆盖 / 恢复默认」语义都由 harness 提供。详情页负责绘制插件标题、图标与描述；表单本身只贡献一行「改动何时生效」的说明、每个分组一张卡片——卡片描边就是分组之间的分隔——以及底部粘性保存栏；保存栏只在有可操作内容时出现：有暂存改动、正在写入，或一次失败值得重试。
+配置命名空间 = profile patch 行 id = `android-emulator-helper`（同时是 `dsh.name`）。表单注册到插件页的 `plugins.bundle.config` 槽、以包名为键，因此渲染在「插件」页该插件的详情页里；只有当 host 半侧提供该命名空间时它才存在。表单通过 `ctx.configForms` 读写，因此暂存编辑、脏值检测、内联校验、乐观并发（revision）与「已覆盖 / 恢复默认」语义都由 harness 提供。详情页负责绘制插件标题、图标与描述；表单本身只贡献一行「改动何时生效」的说明、每个分组一张卡片——卡片描边就是分组之间的分隔——以及底部粘性保存栏；保存栏只在有可操作内容时出现：有暂存改动、正在写入，或一次失败值得重试。
 
 | 分组 | 设置项 | 类型 | 默认值 | 旧环境变量回落 |
 |---|---|---|---|---|
@@ -115,6 +116,9 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 | 输出目录与日志 | `dataDir` | 文本 | `$DSH_HOME/android-emulator-helper` | — |
 | | `screenshotDir` | 文本 | `<数据目录>/screenshots` | — |
 | | `logTailLines` | 整数 | `500` | — |
+| 界面 | `showInSettings` | 开关 | 关 | — |
+
+最后一张卡片决定这张页面出现在哪里。**在「设置」中显示** 关闭（默认）时，表单只渲染在插件详情页上。打开并保存后，bundle 还会注册一个 `settings.section` 条目（id 为 `android-emulator-helper`，order 为 100），以及绘制其图标的 `settings.section.icon` 贡献，于是同一张表单、同一个设置命名空间，也会出现在 **设置** 对话框的导航里，名称为 **Android 模拟器**。图标是提供的 Android 字形，作为独立文件随包发布（`./assets/*` 导出），按 `currentColor` 做遮罩绘制，因此跟随导航项颜色，16 px；选中态就是同一图形在导航项激活色下的样子。两个注册都跟随保存后的值实时变化，因此关掉开关后该节会立即消失，无需重载。
 
 配置页的两个按钮调用 host 半侧的两个精确 Fetch 路由：
 
@@ -141,9 +145,11 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 
 ![页面继续下滚：模拟器与设备卡片标题，然后是 API 级别与系统镜像卡片里的系统镜像变体、系统镜像 ABI 与默认 minSdk，构建卡片里的 Gradle 构建超时与额外 Gradle 参数，以及输出卡片开头](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-3-api-and-build.png)
 
-**4. 输出目录与检测** —— 截图和构建日志落在哪里，然后是环境检测与探测卡片：支撑页面的两个按钮（对应上面的 Fetch 路由），以及它填充的探测结果——探测到的 SDK 根目录、AVD 目录、AVD 与已安装系统镜像。画面停在插件表单结束处：
+**4. 输出目录与检测** —— 截图和构建日志落在哪里，然后是环境检测与探测卡片：支撑页面的两个按钮（对应上面的 Fetch 路由），以及它填充的探测结果——探测到的 SDK 根目录、AVD 目录、AVD 与已安装系统镜像。现在收尾的「界面」卡片不在画面里：
 
-![表单底部：输出目录与日志卡片里的数据目录、截图目录与默认 logcat 行数，然后是环境检测与探测卡片里的检测环境与刷新设备与 AVD 按钮，以及探测结果里的 SDK 根目录、AVD 目录、AVD 与已安装系统镜像](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-4-output-and-diagnostics.png)
+![截到的表单末尾：输出目录与日志卡片里的数据目录、截图目录与默认 logcat 行数，然后是环境检测与探测卡片里的检测环境与刷新设备与 AVD 按钮，以及探测结果里的 SDK 根目录、AVD 目录、AVD 与已安装系统镜像](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-4-output-and-diagnostics.png)
+
+「界面」卡片与可选的「设置」入口晚于这四张截图，因此画面比现在的页面少最后一张卡片；下次宿主重启后会重新截图更新。
 
 `screenshots.json` 就在仓库里的 `package.json` 旁边按这个顺序列出四张图，插件市场据此展示。
 
@@ -181,7 +187,7 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 | 方面 | 原插件（ZCode） | 本插件（DSH） |
 |---|---|---|
 | 工具暴露 | stdio MCP 服务器 `android-emulator`；模型看到 `mcp__android_emulator__*` | 原生 `ctx.tools.register()`；模型看到 `android_*` |
-| 用户配置 | `plugin.json` 的 `userConfig`（7 项），经环境变量注入 | 配置页 + schemastery `Config` 的 17 个字段，全部 `.volatile()`；旧环境变量仍作回落 |
+| 用户配置 | `plugin.json` 的 `userConfig`（7 项），经环境变量注入 | 配置页 + schemastery `Config` 的 18 个字段，全部 `.volatile()`；旧环境变量仍作回落 |
 | 工作目录 | `process.cwd()` | `exec.agent.session.header.cwd`（会话工作区） |
 | 数据目录 | `ANDROID_PLUGIN_DATA` / 临时目录 | `$DSH_HOME/android-emulator-helper`，可在配置页配置 |
 | 截图返回 | MCP image content（base64） | 由 host 附件引用生成的图像块，被拒时退化为文本 + 磁盘路径 |

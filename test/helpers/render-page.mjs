@@ -5,7 +5,7 @@ import * as primitives from './primitives-double.mjs'
 import { loadBundle } from './load-bundle.mjs'
 
 /**
- * Render the plugin's Plugins-page configuration form and print a JSON report.
+ * Render the plugin's configuration page and print a JSON report.
  *
  * React is real (`react-dom/server`, so hooks and the element tree are the real
  * thing); the primitives are the double documented in `primitives-double.mjs`,
@@ -15,10 +15,21 @@ import { loadBundle } from './load-bundle.mjs'
  * The fake services validate the namespace they are called with: a client that
  * bound the wrong namespace used to satisfy every assertion here, because the
  * fake answered any name with the same form and dictionary.
+ *
+ * The fake host is also where the optional Settings entry is observed: its live
+ * value can be published, so one mount can show the switch off, the
+ * switched-on registrations, and the disposal that follows a switch-off. That
+ * is the only way to prove the registration is live rather than decided once
+ * at load time.
  */
 
 /** The namespace the page must bind to (the patch row id). */
 const EXPECTED_NS = 'android-emulator-helper'
+/** The slot the Plugins page renders a bundle's own configuration through. */
+const PLUGIN_PAGE_SLOT = 'plugins.bundle.config'
+/** The two optional Settings contributions, by the names the bundle registers. */
+const SETTINGS_SECTION_SLOT = 'settings.section'
+const SETTINGS_ICON_SLOT = 'settings.section.icon'
 
 const report = { failures: [], markup: '', registered: null }
 
@@ -41,9 +52,14 @@ const LIVE_VALUES = {
   dataDir: '',
   screenshotDir: '',
   logTailLines: 500,
+  showInSettings: false,
 }
 
-/** A snapshot-store stand-in with the shape `SettingsFormModel` subscribes to. */
+/**
+ * A snapshot store stand-in with the shape `SettingsFormModel` subscribes to,
+ * plus `publish`: publishing a snapshot is what a landed save looks like to a
+ * subscriber, and it is how the report flips the switch.
+ */
 function snapshotStore(initial) {
   let snapshot = initial
   const listeners = new Set()
@@ -52,6 +68,10 @@ function snapshotStore(initial) {
     subscribe: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+    publish: (patch) => {
+      snapshot = { ...snapshot, ...patch }
+      for (const listener of [...listeners]) listener()
     },
   }
 }
@@ -70,6 +90,11 @@ function fakeConfigForm(options = {}) {
   return {
     getSnapshot: store.getSnapshot,
     subscribe: store.subscribe,
+    /** Publish one live-value change, the way a save republishes the section. */
+    publishValue: (patch) => {
+      const snapshot = store.getSnapshot()
+      store.publish({ value: { ...snapshot.value, ...patch } })
+    },
     set: async () => true,
     unset: async () => true,
     mutate: async () => true,
@@ -82,14 +107,16 @@ function fakeConfigForm(options = {}) {
  * @param {{served?: boolean, status?: string, writable?: boolean}} [options] - `served: false`
  *   models a host that does not serve the settings namespace: `whileServed` then
  *   never calls back.
- * @returns {{ctx: object, registered: object}} the context and its registration record.
+ * @returns {{ctx: object, registered: object, form: object}} the context, its
+ *   registration record and the live form the report publishes to.
  */
 function fakeContext(options = {}) {
   const served = options.served ?? true
   const form = fakeConfigForm(options)
   const registered = {
-    component: undefined,
-    options: undefined,
+    /** Every `slots.register` call, in call order, with its own disposer state. */
+    registrations: [],
+    /** Every slot name passed to `slots.inject`, repeats included. */
     slots: [],
     dictionaries: [],
     namespaceCalls: [],
@@ -135,9 +162,11 @@ function fakeContext(options = {}) {
         return callback()
       },
       register: (entry, component) => {
-        registered.options = entry
-        registered.component = component
-        return () => {}
+        const record = { name: entry.name, options: entry, component, disposed: false }
+        registered.registrations.push(record)
+        return () => {
+          record.disposed = true
+        }
       },
       getVersion: () => 1,
       entries: () => [],
@@ -152,7 +181,7 @@ function fakeContext(options = {}) {
     get: () => undefined,
     logger: { info() {}, warn() {}, error() {} },
   }
-  return { ctx, registered }
+  return { ctx, registered, form }
 }
 
 const { exported } = loadBundle({
@@ -167,7 +196,7 @@ const { exported } = loadBundle({
  * Mount the bundle against one fake host.
  *
  * @param {{served?: boolean, status?: string, writable?: boolean}} [options] - host shape.
- * @returns {{ctx: object, registered: object}} the mount.
+ * @returns {{ctx: object, registered: object, form: object}} the mount.
  */
 function mount(options = {}) {
   const host = fakeContext(options)
@@ -177,6 +206,21 @@ function mount(options = {}) {
     report.failures.push(`apply() threw: ${error.message}`)
   }
   return host
+}
+
+/**
+ * The registration one slot name was made through.
+ *
+ * A mount makes more than one: the plugin page always, and the two Settings
+ * entries while the page's switch is on. Looking the plugin page up by its slot
+ * name is what keeps the props of one from being rendered with another's face.
+ *
+ * @param {{registered: object}} host - the mount.
+ * @param {string} [name] - the slot name to find.
+ * @returns {object | undefined} the registration record, or undefined.
+ */
+function registrationFor(host, name = PLUGIN_PAGE_SLOT) {
+  return host.registered.registrations.find((record) => record.name === name)
 }
 
 /**
@@ -204,34 +248,45 @@ function faceToProps(face) {
  * The props one registered component is rendered with.
  *
  * @param {{ctx: object, registered: object}} host - the mount.
+ * @param {string} [name] - the slot name whose entry is rendered.
  * @returns {object | undefined} the props, or undefined when nothing registered.
  */
-function propsFor(host) {
-  const { component, options } = host.registered
-  if (component === undefined) return undefined
-  return { t: host.ctx.locale.bind(options.locale), view: 'page', ...faceToProps(options.inject()) }
+function propsFor(host, name = PLUGIN_PAGE_SLOT) {
+  const record = registrationFor(host, name)
+  if (record === undefined) return undefined
+  return { t: host.ctx.locale.bind(record.options.locale), view: 'page', ...faceToProps(record.options.inject()) }
 }
 
-/** Render one mount's component to markup. */
+/** Render one mount's plugin-page component to markup. */
 function render(host) {
+  const record = registrationFor(host)
   const props = propsFor(host)
-  if (props === undefined) return ''
-  return renderToStaticMarkup(React.createElement(host.registered.component, props))
+  if (record === undefined || props === undefined) return ''
+  return renderToStaticMarkup(React.createElement(record.component, props))
 }
 
 const main = mount()
 
+// The switch is off by default, so the Settings surface must be untouched: one
+// slot injected (the plugin page), one registration, no Settings entry. Capture
+// this before anything publishes a change.
+report.disabled = {
+  slots: [...new Set(main.registered.slots)],
+  registered: main.registered.registrations.map((record) => record.name),
+}
+
 // A host that does not serve the namespace must render no trace of the form.
 const unserved = mount({ served: false })
 report.unserved = {
-  component: unserved.registered.component !== undefined,
+  component: registrationFor(unserved) !== undefined,
   slots: [...new Set(unserved.registered.slots)],
 }
 
-if (main.registered.component === undefined) {
+if (registrationFor(main) === undefined) {
   report.failures.push('apply() registered no plugin-page configuration component')
 } else {
-  const { options } = main.registered
+  const record = registrationFor(main)
+  const { options } = record
   report.registered = {
     slot: options.name,
     key: options.key,
@@ -259,6 +314,7 @@ if (main.registered.component === undefined) {
     }
   }
   if (options.label !== undefined) report.failures.push('the plugin detail page draws its own title; the entry must not register a label')
+  if (options.id !== undefined) report.failures.push('the Plugins page entry is keyed by the package name; it must not carry an id')
 
   try {
     report.markup = render(main)
@@ -300,6 +356,75 @@ if (main.registered.component === undefined) {
     report.unavailableMarkup = render(mount({ status: 'unavailable' }))
   } catch (error) {
     report.failures.push(`state render threw: ${error.stack ?? error.message}`)
+  }
+
+  // --- the opt-in Settings entry -------------------------------------------
+  // Publishing the switch is what a landed save does, and the client watches
+  // the form's public snapshot, so both registrations must appear without a
+  // reload — and their disposers must run when it is published off again.
+  try {
+    main.form.publishValue({ showInSettings: true })
+    const sectionRecord = registrationFor(main, SETTINGS_SECTION_SLOT)
+    const iconRecord = registrationFor(main, SETTINGS_ICON_SLOT)
+    if (sectionRecord === undefined || iconRecord === undefined) {
+      report.failures.push('a saved showInSettings must register both settings.section and settings.section.icon')
+    } else {
+      const pageRecord = registrationFor(main)
+      const pageFace = pageRecord.options.inject()
+      const sectionFace = sectionRecord.options.inject()
+      const sectionOptions = sectionRecord.options
+      const label = typeof sectionOptions.label === 'function' ? sectionOptions.label() : sectionOptions.label
+      report.settings = {
+        section: {
+          name: sectionOptions.name,
+          id: sectionOptions.id,
+          order: sectionOptions.order,
+          locale: sectionOptions.locale,
+          label,
+          injectKeys: Object.keys(sectionFace).sort(),
+        },
+        icon: { name: iconRecord.options.name, id: iconRecord.options.id },
+        injected: [...new Set(main.registered.slots)],
+        pluginPageInjectKeys: Object.keys(pageFace).sort(),
+        sameComponent: sectionRecord.component === pageRecord.component,
+        sameHookStore: sectionFace.hooks.androidEmulatorSettings === pageFace.hooks.androidEmulatorSettings,
+      }
+
+      // The Settings shell renders the section's component with the same face
+      // plus its own `close` business prop; the page must be the same form.
+      try {
+        report.markupEnabled = render(main)
+        report.settingsMarkup = renderToStaticMarkup(
+          React.createElement(sectionRecord.component, { ...propsFor(main, SETTINGS_SECTION_SLOT), close: () => {} }),
+        )
+      } catch (error) {
+        report.failures.push(`settings render threw: ${error.stack ?? error.message}`)
+      }
+
+      try {
+        const icon = exported.AndroidIcon
+        if (typeof icon !== 'function') {
+          report.failures.push('the bundle must export the icon component it registers')
+        } else {
+          report.icon = {
+            registered: iconRecord.component === icon,
+            inactive: renderToStaticMarkup(React.createElement(icon, { size: 16, active: false })),
+            active: renderToStaticMarkup(React.createElement(icon, { size: 16, active: true })),
+          }
+        }
+      } catch (error) {
+        report.failures.push(`icon render threw: ${error.stack ?? error.message}`)
+      }
+
+      main.form.publishValue({ showInSettings: false })
+      report.toggled = {
+        sectionDisposed: sectionRecord.disposed,
+        iconDisposed: iconRecord.disposed,
+        remaining: main.registered.registrations.filter((entry) => !entry.disposed).map((entry) => entry.name),
+      }
+    }
+  } catch (error) {
+    report.failures.push(`the Settings entry check threw: ${error.stack ?? error.message}`)
   }
 }
 

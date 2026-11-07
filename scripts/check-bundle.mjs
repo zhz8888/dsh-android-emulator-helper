@@ -37,6 +37,33 @@ function isRecord(value) {
 }
 
 /**
+ * Read one `field: value` property of a slot registration entry.
+ *
+ * @param {string} body - the text between the entry's braces.
+ * @param {string} field - the property to read.
+ * @returns {string | undefined} the trimmed value expression, when present.
+ */
+function entryField(body, field) {
+  return new RegExp(`(?:^|[\\s,{])${field}\\s*:\\s*([^,\\n]+)`).exec(String(body ?? ''))?.[1]?.trim()
+}
+
+/**
+ * Remove line and block comments before the gate reads code.
+ *
+ * These checks compare source text, and a comment that explains the Settings
+ * slots must not read as a second declaration of them. A `:` before `//` is
+ * left alone, so a URL-shaped string cannot swallow the rest of its line.
+ *
+ * @param {string} source - any source text.
+ * @returns {string} the text without comments.
+ */
+function stripComments(source) {
+  return String(source ?? '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+}
+
+/**
  * The slot a bundle registers its own configuration page into.
  *
  * The Plugins page owns this key; a plugin page anywhere else is a page nothing
@@ -99,58 +126,292 @@ export function checkKindsAreRendered(kinds, source) {
  * `PLUGIN_SURFACE` — the only thing the gate compared — stayed correct, so the
  * gate stayed green.
  *
+ * The bundle now owns three registrations: the Plugins page, the optional
+ * Settings section and that section's navigation icon. The two Settings entries
+ * must share one id, so both take it from `SETTINGS_SURFACE.id`; a literal id on
+ * either side would let the icon detach from its section, and the shell simply
+ * renders its default glyph for an unmatched icon, which looks like a styling
+ * choice rather than a bug.
+ *
  * @param {string} source - `lib/client.js`.
  * @returns {string[]} failure messages; empty when the invariant holds.
  */
 export function checkRegistrationUsesSurface(source) {
   const problems = []
-  const text = String(source ?? '')
-  const entries = [...text.matchAll(/slots\s*\.\s*register\s*\(\s*\{([\s\S]{0,600}?)\}\s*,/g)]
-  if (entries.length === 0) {
-    problems.push('lib/client.js must register its page through ctx.slots.register({ ... })')
+  const text = stripComments(source)
+  const entries = [...text.matchAll(/slots\s*\.\s*register\s*\(\s*\{([\s\S]{0,900}?)\}\s*,/g)]
+  if (entries.length !== 3) {
+    problems.push(
+      `lib/client.js must register exactly three slot entries (the Plugins page, the Settings section and its icon); found ${entries.length}`,
+    )
     return problems
   }
   for (const entry of entries) {
     const body = entry[1] ?? ''
-    const name = /(?:^|[\s,{])name\s*:\s*([^,\n]+)/.exec(body)?.[1]?.trim()
-    const key = /(?:^|[\s,{])key\s*:\s*([^,\n]+)/.exec(body)?.[1]?.trim()
-    // The registration has to read the exported object rather than repeat a
-    // literal, so the two cannot disagree.
-    if (name !== 'PLUGIN_SURFACE.slot') {
-      problems.push(
-        `the page registration must take its slot from PLUGIN_SURFACE.slot, not ${JSON.stringify(name ?? 'nothing')}`,
-      )
+    const name = entryField(body, 'name')
+    const key = entryField(body, 'key')
+    const id = entryField(body, 'id')
+    if (name === 'PLUGIN_SURFACE.slot') {
+      if (key !== 'PLUGIN_SURFACE.key') {
+        problems.push(
+          `the page registration must take its key from PLUGIN_SURFACE.key, not ${JSON.stringify(key ?? 'nothing')}`,
+        )
+      }
+      if (id !== undefined) problems.push('the Plugins page registration is keyed by package name and carries no id')
+      continue
     }
-    if (key !== 'PLUGIN_SURFACE.key') {
-      problems.push(
-        `the page registration must take its key from PLUGIN_SURFACE.key, not ${JSON.stringify(key ?? 'nothing')}`,
-      )
+    if (name === 'SETTINGS_SURFACE.section') {
+      if (key !== undefined) problems.push('the Settings section is keyed by id, not by the Plugins page key')
+      if (id !== 'SETTINGS_SURFACE.id') {
+        problems.push(
+          `the Settings section registration must take its id from SETTINGS_SURFACE.id, not ${JSON.stringify(id ?? 'nothing')}`,
+        )
+      }
+      if (!/\border\s*:\s*SETTINGS_SURFACE\.order\b/.test(body)) {
+        problems.push('the Settings section registration must take its order from SETTINGS_SURFACE.order')
+      }
+      if (!/\blabel\s*:\s*(?:\(\s*\)|[\w$]+)\s*=>/.test(body)) {
+        problems.push('the Settings section registration must declare a locale-following label thunk')
+      }
+      if (!/\blocale\s*:\s*NS_T\b/.test(body)) {
+        problems.push('the Settings section registration must name the dictionary namespace it renders with (locale: NS_T)')
+      }
+      continue
     }
+    if (name === 'SETTINGS_SURFACE.icon') {
+      if (key !== undefined) problems.push('the Settings icon is keyed by id, not by the Plugins page key')
+      if (id !== 'SETTINGS_SURFACE.id') {
+        problems.push(
+          `the Settings icon registration must take its id from SETTINGS_SURFACE.id, not ${JSON.stringify(id ?? 'nothing')}`,
+        )
+      }
+      continue
+    }
+    problems.push(
+      `slot registrations must take their slot from PLUGIN_SURFACE or SETTINGS_SURFACE, not ${JSON.stringify(name ?? 'nothing')}`,
+    )
   }
   return problems
 }
 
 /**
- * Check that the bundle never registers into the Settings dialog.
+ * Check that the Settings slot names have exactly one source.
  *
- * `settings.section` still exists in the harness and still renders third-party
- * entries, so registering there is not a type error — it just gives the plugin a
- * second configuration page, which is the thing this migration removed. Both
- * quote styles are matched: the old check only looked for the double-quoted
- * string, so a single-quoted registration slipped through.
+ * `settings.section` and `settings.section.icon` may appear only inside the
+ * exported `SETTINGS_SURFACE`. Anywhere else — a registration, an inject call,
+ * a helper — a repeated literal is a second source that can drift, which is the
+ * failure the old "never register into the Settings dialog" rule was written
+ * for. The rule changed with the opt-in switch; the one-source property did
+ * not. Comments are stripped first, so this covers code, not prose.
  *
  * @param {string} source - `lib/client.js`.
  * @returns {string[]} failure messages; empty when the invariant holds.
  */
-export function checkNoSettingsSection(source) {
+export function checkSettingsSlotLiterals(source) {
   const text = String(source ?? '')
-  const quoted = /["'`]\s*settings\s*\.\s*section\s*["'`]/.test(text)
-  const bracket = /\[\s*["'`]settings["'`]\s*\+\s*["'`]\.section["'`]\s*\]/.test(text)
-  const bare = /(?:^|[^\w.$])settings\s*\.\s*section(?!\s*["'`])/.test(text)
-  if (quoted || bracket || bare) {
-    return ['lib/client.js must not register into the Settings dialog: plugin pages live on the Plugins page']
+  const surface = /const\s+SETTINGS_SURFACE\s*=\s*Object\.freeze\(\{[\s\S]{0,400}?\}\)/.exec(text)?.[0]
+  if (surface === undefined) {
+    return ['lib/client.js must declare SETTINGS_SURFACE: the Settings slot names must have one source']
+  }
+  const rest = stripComments(text.replace(surface, ''))
+  const quoted = /["'`]\s*settings\s*\.\s*section(?:\s*\.\s*icon)?\s*["'`]/.test(rest)
+  const bare = /(?:^|[^\w.$])settings\s*\.\s*section(?!\s*["'`])/.test(rest)
+  if (quoted || bare) {
+    return [
+      'the settings.section and settings.section.icon names may only appear inside SETTINGS_SURFACE; a stray literal is a second source that can drift',
+    ]
   }
   return []
+}
+
+/**
+ * Mount the browser half over a minimal host and record what it registers.
+ *
+ * The gate has to observe the registration, not merely read it: the whole point
+ * of the opt-in switch is that the Settings entry does not exist while the
+ * setting is off. The shared primitives are stubbed, so the form's controller
+ * degrades to the empty face — the registrations are what this observes, and a
+ * gating rule that only worked through the controller would fail here.
+ *
+ * @param {Record<string, any>} exported - the bundle's exports.
+ * @param {boolean} enabled - the value the host resolves for the switch.
+ * @returns {{apply: () => void, injected: string[], live: () => Array<{entry: Record<string, any>, component: unknown, disposed: boolean}>, publish: (next: boolean) => void}} the mount.
+ */
+function mountClientHalf(exported, enabled) {
+  const surface = exported?.SETTINGS_SURFACE ?? {}
+  const field = typeof surface.field === 'string' && surface.field.length > 0 ? surface.field : 'showInSettings'
+  const section = { [field]: enabled }
+  const listeners = new Set()
+  const scope = {
+    getSnapshot: () => ({ status: 'ready', value: { ...section }, base: {}, user: {}, writable: true, revision: 1 }),
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    mutate: async () => true,
+  }
+  /** @type {Array<{entry: Record<string, any>, component: unknown, disposed: boolean}>} */
+  const registrations = []
+  /** @type {string[]} */
+  const injected = []
+  const host = {
+    configForms: {
+      get: () => scope,
+      whileServed: (namespaces, register) => {
+        const disposer = register(new Set(namespaces))
+        return typeof disposer === 'function' ? disposer : () => {}
+      },
+    },
+    locale: {
+      register: () => () => {},
+      bind: () => (key) => exported?.DICTIONARY?.en?.[key] ?? key,
+    },
+    slots: {
+      inject: (name, callback) => {
+        injected.push(name)
+        return callback()
+      },
+      register: (entry, component) => {
+        const record = { entry, component, disposed: false }
+        registrations.push(record)
+        return () => {
+          record.disposed = true
+        }
+      },
+    },
+    effect: (callback) => {
+      const disposer = callback()
+      return () => {
+        if (typeof disposer === 'function') disposer()
+      }
+    },
+    logger: { warn: () => {}, error: () => {} },
+  }
+  return {
+    apply: () => exported.apply(host),
+    injected,
+    live: () => registrations.filter((record) => !record.disposed),
+    publish: (next) => {
+      section[field] = next
+      for (const listener of [...listeners]) listener()
+    },
+  }
+}
+
+/**
+ * Check that the Settings entry follows the `showInSettings` switch.
+ *
+ * A structural check cannot prove the opt-in gates anything: a registration
+ * moved out of the visibility guard still reads the exported surface and still
+ * names the right slot. This mounts the real `apply` against a host that serves
+ * the form with the switch off, then on, then off again, and requires the three
+ * observations the feature promises — no Settings entry while the switch is
+ * off, both entries (section and icon, one shared id) while it is on, and both
+ * disposed again when it is saved off, without a reload.
+ *
+ * @param {Record<string, any>} exported - the bundle's exports.
+ * @returns {string[]} failure messages; empty when the invariant holds.
+ */
+export function checkSettingsSectionGated(exported) {
+  const problems = []
+  const surface = exported?.SETTINGS_SURFACE
+  if (!isRecord(surface)) {
+    return ['the client bundle must export SETTINGS_SURFACE']
+  }
+  if (surface.section !== 'settings.section') {
+    problems.push(`SETTINGS_SURFACE.section must be "settings.section", not ${JSON.stringify(surface.section)}`)
+  }
+  if (surface.icon !== 'settings.section.icon') {
+    problems.push(`SETTINGS_SURFACE.icon must be "settings.section.icon", not ${JSON.stringify(surface.icon)}`)
+  }
+  if (surface.id !== exported.NS) {
+    problems.push(
+      `SETTINGS_SURFACE.id ${JSON.stringify(surface.id)} must be the settings namespace ${JSON.stringify(exported.NS)}`,
+    )
+  }
+  const hostField = FIELDS.get(surface.field)
+  if (hostField === undefined) {
+    problems.push(`SETTINGS_SURFACE.field ${JSON.stringify(surface.field)} must name a declared settings field`)
+  } else if (hostField.kind !== 'boolean') {
+    problems.push(
+      `SETTINGS_SURFACE.field ${JSON.stringify(surface.field)} must be a boolean field; it is ${JSON.stringify(hostField.kind)}`,
+    )
+  }
+  if (typeof exported.apply !== 'function') {
+    return [...problems, 'the client bundle must export apply()']
+  }
+  if (problems.length > 0) return problems
+
+  const off = mountClientHalf(exported, false)
+  try {
+    off.apply()
+  } catch (error) {
+    return [...problems, `apply() must survive a host that serves the form: ${String(error?.message ?? error)}`]
+  }
+  const offNames = off.live().map((record) => record.entry.name)
+  if (offNames.length !== 1 || offNames[0] !== PLUGIN_PAGE_SLOT) {
+    problems.push(
+      `with the switch off the bundle must register only ${JSON.stringify(PLUGIN_PAGE_SLOT)}; it registered [${offNames.join(', ')}]`,
+    )
+  }
+  if (off.injected.some((name) => name === surface.section || name === surface.icon)) {
+    problems.push('with the switch off the bundle must not wait on a Settings slot')
+  }
+
+  const on = mountClientHalf(exported, true)
+  try {
+    on.apply()
+  } catch (error) {
+    return [...problems, `apply() must survive a host that serves the form: ${String(error?.message ?? error)}`]
+  }
+  const byName = new Map(on.live().map((record) => [record.entry.name, record]))
+  const section = byName.get(surface.section)
+  const icon = byName.get(surface.icon)
+  if (section === undefined) problems.push(`with the switch on the bundle must register ${JSON.stringify(surface.section)}`)
+  if (icon === undefined) problems.push(`with the switch on the bundle must register ${JSON.stringify(surface.icon)}`)
+  if (section !== undefined && icon !== undefined) {
+    if (section.entry.id !== surface.id) {
+      problems.push(
+        `the Settings section id must be ${JSON.stringify(surface.id)}, not ${JSON.stringify(section.entry.id)}`,
+      )
+    }
+    if (icon.entry.id !== section.entry.id) {
+      problems.push(
+        `the Settings icon id ${JSON.stringify(icon.entry.id)} must equal its section id ${JSON.stringify(section.entry.id)}`,
+      )
+    }
+    if (section.entry.order !== surface.order) {
+      problems.push(`the Settings section order must be SETTINGS_SURFACE.order (${JSON.stringify(surface.order)})`)
+    }
+    if (typeof icon.component !== 'function') {
+      problems.push('the Settings icon registration must pass its component')
+    }
+    if (section.entry.key !== undefined) {
+      problems.push('the Settings section is keyed by id; it must not carry the Plugins page key')
+    }
+    if (typeof section.entry.label !== 'function') {
+      problems.push('the Settings section label must be a thunk so it follows the active locale')
+    } else {
+      const label = section.entry.label()
+      const texts = Object.values(exported.DICTIONARY?.en ?? {})
+      if (typeof label !== 'string' || label.length === 0) {
+        problems.push('the Settings section label must resolve to a non-empty string')
+      } else if (!texts.includes(label)) {
+        problems.push(
+          `the Settings section label ${JSON.stringify(label)} is not an entry of the bundle's own dictionary`,
+        )
+      }
+    }
+    if (section.entry.locale === undefined) {
+      problems.push('the Settings section must declare the dictionary namespace it renders with')
+    }
+  }
+  on.publish(false)
+  const after = on.live().map((record) => record.entry.name)
+  if (after.includes(surface.section) || after.includes(surface.icon)) {
+    problems.push('saving the switch off must dispose both Settings entries without a reload')
+  }
+  return problems
 }
 
 /**
@@ -381,7 +642,7 @@ function main() {
   if (!Array.isArray(exported.inject) || exported.inject.length === 0) {
     fail('the client bundle must export a non-empty inject list')
   }
-  for (const name of ['apply', 'inject', 'NS', 'FIELD_META', 'GROUP_META', 'PLUGIN_SURFACE']) {
+  for (const name of ['apply', 'inject', 'NS', 'FIELD_META', 'GROUP_META', 'PLUGIN_SURFACE', 'SETTINGS_SURFACE']) {
     if (exported[name] === undefined) fail(`the client bundle must export ${name}`)
   }
 
@@ -395,12 +656,14 @@ function main() {
   }
 
   // --- plugin surface agreement ---------------------------------------------
-  // The form is not a Settings dialog section any more: it is a bundle's own
-  // configuration on the Plugins page, in the `plugins.bundle.config` keyed slot.
-  // That slot is keyed by the BUNDLE's package name — the value the plugin
-  // manager's inventory compares against — so the key is the package name and
-  // never the settings namespace above. The namespace is separately load-bearing:
-  // it is the patch row id whose live form the page binds to.
+  // The form's home is the Plugins page: it registers into the
+  // `plugins.bundle.config` keyed slot, keyed by the BUNDLE's package name — the
+  // value the plugin manager's inventory compares against — so the key is the
+  // package name and never the settings namespace above. The namespace is
+  // separately load-bearing: it is the patch row id whose live form the page
+  // binds to. The opt-in Settings entry is the exception, and it is checked
+  // below: it must stay behind the `showInSettings` switch and take both its
+  // slots from the exported `SETTINGS_SURFACE`.
   const clientSource = readFileSync(path.join(ROOT, 'lib', 'client.js'), 'utf8')
   const surface = exported.PLUGIN_SURFACE
   if (surface === undefined) {
@@ -419,9 +682,11 @@ function main() {
   }
   // The exported surface is a claim; the registration is the fact. Both are
   // checked, because a page can be registered somewhere nothing renders while
-  // every exported value still reads correctly.
+  // every exported value still reads correctly. The Settings entry is checked
+  // behaviourally as well: it must not exist while its switch is off.
   failures.push(...checkRegistrationUsesSurface(clientSource))
-  failures.push(...checkNoSettingsSection(clientSource))
+  failures.push(...checkSettingsSlotLiterals(clientSource))
+  failures.push(...checkSettingsSectionGated(exported))
 
   // --- field table agreement -------------------------------------------------
   const clientFields = exported.FIELD_META ?? []
@@ -595,7 +860,7 @@ function main() {
   }
 
   report(
-    `check-bundle: OK — bundle id, namespace, plugin surface, ${clientFields.length} fields, ${kinds?.length ?? 0} field kinds, ${sources?.length ?? 0} suggestion sources, both dictionaries, 2 routes and script hygiene all agree.`,
+    `check-bundle: OK — bundle id, namespace, plugin surface, ${clientFields.length} fields, ${kinds?.length ?? 0} field kinds, ${sources?.length ?? 0} suggestion sources, both dictionaries, 2 routes, the opt-in Settings entry and script hygiene all agree.`,
   )
 }
 

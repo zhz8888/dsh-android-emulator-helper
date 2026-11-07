@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import * as gate from '../scripts/check-bundle.mjs'
+import { loadBundle } from './helpers/load-bundle.mjs'
 import { SETTINGS_NAMESPACE } from '../lib/settings.js'
 
 /** The repository under test, so a copy can be laid out the way the gate reads it. */
@@ -246,27 +247,64 @@ test('G-1: a registration that repeats the slot as a literal is reported', () =>
   assert.notEqual(mutated, CLIENT_SOURCE, 'the mutation must actually change the source')
   const failures = gate.checkRegistrationUsesSurface(mutated)
   assert.ok(failures.length > 0, 'a registration that does not read PLUGIN_SURFACE.slot must be reported')
-  assert.match(failures.join('\n'), /PLUGIN_SURFACE\.slot/)
+  assert.match(failures.join('\n'), /PLUGIN_SURFACE or SETTINGS_SURFACE/)
 })
 
 test('G-1: the shipped registration passes', () => {
   assert.deepEqual(gate.checkRegistrationUsesSurface(CLIENT_SOURCE), [])
 })
 
-test('G-3: a single-quoted settings.section registration is reported', () => {
-  const mutated = `${CLIENT_SOURCE}\nconst LEGACY = 'settings.section';\n`
-  const failures = gate.checkNoSettingsSection(mutated)
-  assert.ok(failures.length > 0, 'a single-quoted settings.section must be reported')
-  assert.match(failures.join('\n'), /Settings dialog/)
+test('G-3: a settings.section literal outside SETTINGS_SURFACE is reported', () => {
+  // The old rule was "never register into the Settings dialog"; the shipped
+  // rule is "the Settings slots have exactly one source". A registration that
+  // repeats the literal bypasses the exported surface and can drift from it.
+  const failures = gate.checkSettingsSlotLiterals(`${CLIENT_SOURCE}\nconst LEGACY = 'settings.section';\n`)
+  assert.ok(failures.length > 0, 'a single-quoted settings.section outside SETTINGS_SURFACE must be reported')
+  assert.match(failures.join('\n'), /SETTINGS_SURFACE/)
 })
 
 test('G-3: a bare settings.section property access is reported', () => {
-  const failures = gate.checkNoSettingsSection(`${CLIENT_SOURCE}\nconst legacy = slots.inject(settings.section);\n`)
-  assert.ok(failures.length > 0, 'a bare settings.section access must be reported')
+  const failures = gate.checkSettingsSlotLiterals(`${CLIENT_SOURCE}\nconst legacy = slots.inject(settings.section);\n`)
+  assert.ok(failures.length > 0, 'a bare settings.section access outside SETTINGS_SURFACE must be reported')
 })
 
-test('G-3: the shipped client registers into no Settings section', () => {
-  assert.deepEqual(gate.checkNoSettingsSection(CLIENT_SOURCE), [])
+test('G-3: the shipped client declares the Settings slots once', () => {
+  assert.deepEqual(gate.checkSettingsSlotLiterals(CLIENT_SOURCE), [])
+})
+
+test('G-3: an icon id that does not come from the surface is reported', () => {
+  // Both the section and its icon must take the shared id from the exported
+  // surface; a literal on either side can detach the icon from its section.
+  const mutated = CLIENT_SOURCE.replace(/id:\s*SETTINGS_SURFACE\.id/g, 'id: "android-emulator-helper"')
+  assert.notEqual(mutated, CLIENT_SOURCE, 'the mutation must actually change the source')
+  const failures = gate.checkRegistrationUsesSurface(mutated)
+  assert.ok(failures.length > 0, 'the ids must come from SETTINGS_SURFACE.id')
+  assert.match(failures.join('\n'), /SETTINGS_SURFACE\.id/)
+})
+
+/** The shipped bundle, evaluated the way the shell evaluates it. */
+const CLIENT_BUNDLE = loadBundle().exported
+
+test('G-3: the shipped client gates the Settings entry on its switch', () => {
+  // The structural checks cannot prove the opt-in exists: this mounts the real
+  // apply() over a host that serves the form with the switch off, on and off
+  // again.
+  assert.deepEqual(gate.checkSettingsSectionGated(CLIENT_BUNDLE), [])
+})
+
+test('G-3: a client that registers nothing at all is reported', () => {
+  // The check must observe behaviour, not only the exported surface: a client
+  // that stopped registering its page would still export a correct surface.
+  const failures = gate.checkSettingsSectionGated({ ...CLIENT_BUNDLE, apply: () => {} })
+  assert.ok(failures.length > 0, 'an apply that registers nothing must be reported')
+  assert.match(failures.join('\n'), /switch off/)
+})
+
+test('G-3: a surface whose id drifts from the namespace is reported', () => {
+  const broken = { ...CLIENT_BUNDLE, SETTINGS_SURFACE: { ...CLIENT_BUNDLE.SETTINGS_SURFACE, id: 'drifted' } }
+  const failures = gate.checkSettingsSectionGated(broken)
+  assert.ok(failures.length > 0, 'an id that is not the settings namespace must be reported')
+  assert.match(failures.join('\n'), /SETTINGS_SURFACE\.id/)
 })
 
 test('G-2: a kind exported without a renderer is reported', () => {
@@ -350,7 +388,8 @@ test('G-4: an option filed under the wrong key is reported', () => {
 /** The names the gate exports as checks, in the order they were written. */
 const GATE_CHECK_NAMES = [
   'checkRegistrationUsesSurface',
-  'checkNoSettingsSection',
+  'checkSettingsSlotLiterals',
+  'checkSettingsSectionGated',
   'checkFieldKinds',
   'checkKindsAreRendered',
   'checkSuggestSources',

@@ -84,6 +84,10 @@ export function loadBundle(options = {}) {
     required.push(specifier)
     return resolve(specifier)
   }
+  // The shell's asset lookup beside the module table: `require.asset` compiles a
+  // package's own `./assets/*` export into a carrier-fetchable URL. The Web page
+  // carrier defaults it to identity, which is what the assertions read.
+  require.asset = (reference) => reference
   const window = {
     __ModuleLoader__: {
       load(entry) {
