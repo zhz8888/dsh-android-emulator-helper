@@ -67,9 +67,11 @@ function stripComments(source) {
  * The slot a bundle registers its own configuration page into.
  *
  * The Plugins page owns this key; a plugin page anywhere else is a page nothing
- * renders.
+ * renders. A row's page is the one that opens from the row's **Configure**
+ * control, so the form lives one click below the bundle's detail page rather
+ * than inline on it.
  */
-export const PLUGIN_PAGE_SLOT = 'plugins.bundle.config'
+export const PLUGIN_PAGE_SLOT = 'plugins.row.config'
 
 /**
  * Check that every kind in the exported list is one the page actually renders.
@@ -126,12 +128,12 @@ export function checkKindsAreRendered(kinds, source) {
  * `PLUGIN_SURFACE` — the only thing the gate compared — stayed correct, so the
  * gate stayed green.
  *
- * The bundle now owns three registrations: the Plugins page, the optional
- * Settings section and that section's navigation icon. The two Settings entries
- * must share one id, so both take it from `SETTINGS_SURFACE.id`; a literal id on
- * either side would let the icon detach from its section, and the shell simply
- * renders its default glyph for an unmatched icon, which looks like a styling
- * choice rather than a bug.
+ * The bundle now owns three registrations: the row's configuration page, the
+ * optional Settings section and that section's navigation icon. The two Settings
+ * entries must share one id, so both take it from `SETTINGS_SURFACE.id`; a
+ * literal id on either side would let the icon detach from its section, and the
+ * shell simply renders its default glyph for an unmatched icon, which looks like
+ * a styling choice rather than a bug.
  *
  * @param {string} source - `lib/client.js`.
  * @returns {string[]} failure messages; empty when the invariant holds.
@@ -142,7 +144,7 @@ export function checkRegistrationUsesSurface(source) {
   const entries = [...text.matchAll(/slots\s*\.\s*register\s*\(\s*\{([\s\S]{0,900}?)\}\s*,/g)]
   if (entries.length !== 3) {
     problems.push(
-      `lib/client.js must register exactly three slot entries (the Plugins page, the Settings section and its icon); found ${entries.length}`,
+      `lib/client.js must register exactly three slot entries (the row's configuration page, the Settings section and its icon); found ${entries.length}`,
     )
     return problems
   }
@@ -157,11 +159,11 @@ export function checkRegistrationUsesSurface(source) {
           `the page registration must take its key from PLUGIN_SURFACE.key, not ${JSON.stringify(key ?? 'nothing')}`,
         )
       }
-      if (id !== undefined) problems.push('the Plugins page registration is keyed by package name and carries no id')
+      if (id !== undefined) problems.push('the row page registration is keyed by <package>#<row id> and carries no id')
       continue
     }
     if (name === 'SETTINGS_SURFACE.section') {
-      if (key !== undefined) problems.push('the Settings section is keyed by id, not by the Plugins page key')
+      if (key !== undefined) problems.push('the Settings section is keyed by id, not by the row page key')
       if (id !== 'SETTINGS_SURFACE.id') {
         problems.push(
           `the Settings section registration must take its id from SETTINGS_SURFACE.id, not ${JSON.stringify(id ?? 'nothing')}`,
@@ -179,7 +181,7 @@ export function checkRegistrationUsesSurface(source) {
       continue
     }
     if (name === 'SETTINGS_SURFACE.icon') {
-      if (key !== undefined) problems.push('the Settings icon is keyed by id, not by the Plugins page key')
+      if (key !== undefined) problems.push('the Settings icon is keyed by id, not by the row page key')
       if (id !== 'SETTINGS_SURFACE.id') {
         problems.push(
           `the Settings icon registration must take its id from SETTINGS_SURFACE.id, not ${JSON.stringify(id ?? 'nothing')}`,
@@ -387,7 +389,7 @@ export function checkSettingsSectionGated(exported) {
       problems.push('the Settings icon registration must pass its component')
     }
     if (section.entry.key !== undefined) {
-      problems.push('the Settings section is keyed by id; it must not carry the Plugins page key')
+      problems.push('the Settings section is keyed by id; it must not carry the row page key')
     }
     if (typeof section.entry.label !== 'function') {
       problems.push('the Settings section label must be a thunk so it follows the active locale')
@@ -656,27 +658,31 @@ function main() {
   }
 
   // --- plugin surface agreement ---------------------------------------------
-  // The form's home is the Plugins page: it registers into the
-  // `plugins.bundle.config` keyed slot, keyed by the BUNDLE's package name — the
-  // value the plugin manager's inventory compares against — so the key is the
-  // package name and never the settings namespace above. The namespace is
-  // separately load-bearing: it is the patch row id whose live form the page
-  // binds to. The opt-in Settings entry is the exception, and it is checked
-  // below: it must stay behind the `showInSettings` switch and take both its
-  // slots from the exported `SETTINGS_SURFACE`.
+  // The form's home is the row's own page: it registers into the
+  // `plugins.row.config` keyed slot, keyed by `<package name>#<row id>`. The
+  // package name is the value the plugin manager's inventory compares against,
+  // and the row id must be the patch row this plugin mounts — the same string as
+  // the settings namespace — or the row gets no Configure control and the page
+  // has nowhere to render. The bundle detail page's own inline slot,
+  // `plugins.bundle.config`, is deliberately not used: the whole point of the
+  // placement is that the parameters are a page of their own, one click below it.
+  // The opt-in Settings entry is the exception, and it is checked below: it must
+  // stay behind the `showInSettings` switch and take both its slots from the
+  // exported `SETTINGS_SURFACE`.
   const clientSource = readFileSync(path.join(ROOT, 'lib', 'client.js'), 'utf8')
   const surface = exported.PLUGIN_SURFACE
   if (surface === undefined) {
     fail('the client bundle must export PLUGIN_SURFACE')
   } else {
-    if (surface.slot !== 'plugins.bundle.config') {
-      fail(`the form must register into plugins.bundle.config, not ${JSON.stringify(surface.slot)}`)
+    if (surface.slot !== PLUGIN_PAGE_SLOT) {
+      fail(`the form must register into ${PLUGIN_PAGE_SLOT}, not ${JSON.stringify(surface.slot)}`)
     }
-    // The exported key IS the client's `PACKAGE_NAME`, so the exported value
-    // pins the constant without grepping the source for it.
-    if (surface.key !== manifest.name) {
+    // The exported key IS the client's `PACKAGE_NAME` and `NS`, so the exported
+    // value pins both constants without grepping the source for them.
+    const rowKey = `${manifest.name}#${SETTINGS_NAMESPACE}`
+    if (surface.key !== rowKey) {
       fail(
-        `the plugins.bundle.config key ${JSON.stringify(surface.key)} must equal the package name ${JSON.stringify(manifest.name)}`,
+        `the ${PLUGIN_PAGE_SLOT} key ${JSON.stringify(surface.key)} must be <package name>#<row id> = ${JSON.stringify(rowKey)}`,
       )
     }
   }

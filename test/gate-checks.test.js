@@ -243,7 +243,7 @@ test('G-1: a registration that repeats the slot as a literal is reported', () =>
   // Renaming only the registration used to move the page somewhere nothing
   // renders while PLUGIN_SURFACE — the only thing the gate compared — stayed
   // correct, so the gate stayed green.
-  const mutated = CLIENT_SOURCE.replace('name: PLUGIN_SURFACE.slot,', 'name: "plugins.bundle.config.renamed",')
+  const mutated = CLIENT_SOURCE.replace('name: PLUGIN_SURFACE.slot,', 'name: "plugins.row.config.renamed",')
   assert.notEqual(mutated, CLIENT_SOURCE, 'the mutation must actually change the source')
   const failures = gate.checkRegistrationUsesSurface(mutated)
   assert.ok(failures.length > 0, 'a registration that does not read PLUGIN_SURFACE.slot must be reported')

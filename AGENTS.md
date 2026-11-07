@@ -17,7 +17,7 @@ on purpose — the browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 367 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 369 tests: unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -105,22 +105,28 @@ Four constraints shape that layout:
    dropped in favour of `zh.json`.
 4. **A plugin's own configuration belongs on the Plugins page, and only
    optionally in Settings**: DSH 0.2.x expects a plugin that owns a page to
-   register it into the Plugins page's `plugins.bundle.config` keyed slot, and
-   that registration is unconditional. The page may **also** register a
-   `settings.section` entry, but only behind the explicit `showInSettings`
-   switch, whose default is off: the section and its icon are registered while
-   the saved value is true and disposed when it goes false, so a profile that
-   never touches the switch keeps exactly one configuration page, and turning
-   the switch on adds a deliberate second placement rather than a duplicate
-   nobody asked for. The icon must contribute to `settings.section.icon` with an
-   `id` equal to the section's, because the shell pairs the two by that id. The
-   `plugins.bundle.config` slot is keyed by the **BUNDLE's package name**, a
-   different string from the settings namespace, and the page renders the entry
-   inside the plugin detail, between the package description and the component
-   rows. The browser half exports `PLUGIN_SURFACE` and `SETTINGS_SURFACE` so
-   `scripts/check-bundle.mjs` can pin every slot, key and id against
-   `package.json`, and the three registrations read those exports rather than
-   repeating the literals.
+   register it into the Plugins page's `plugins.row.config` keyed slot, and that
+   registration is unconditional. The row slot is what gives the plugin's one
+   row a **Configure** control, so the parameters open on a page of their own
+   rather than inline on the bundle's detail page — the placement `dsh-ops`
+   uses, and the reason `plugins.bundle.config` is deliberately not used. The
+   page may **also** register a `settings.section` entry, but only behind the
+   explicit `showInSettings` switch, whose default is off: the section and its
+   icon are registered while the saved value is true and disposed when it goes
+   false, so a profile that never touches the switch keeps exactly one
+   configuration page, and turning the switch on adds a deliberate second
+   placement rather than a duplicate nobody asked for. The icon must contribute
+   to `settings.section.icon` with an `id` equal to the section's, because the
+   shell pairs the two by that id. The `plugins.row.config` slot is keyed by
+   `<package name>#<row id>`: the package name is the value the plugin manager's
+   inventory compares against, and the row id is the patch row this plugin
+   mounts — the same string as the settings namespace. The browser half exports
+   `PLUGIN_SURFACE` and `SETTINGS_SURFACE` so `scripts/check-bundle.mjs` can pin
+   every slot, key and id against `package.json` and the patch row, and the
+   three registrations read those exports rather than repeating the literals.
+   The entry answers both views the page asks for: `page` renders the form, and
+   `summary` — the row's description slot when its package description is absent
+   — renders one sentence, because a form there would be drawn twice.
 
 ## The two halves share a contract, not code
 
@@ -417,8 +423,8 @@ see a type error at all.
 | Layer | Command | What it proves |
 |---|---|---|
 | Unit and parsers | `pnpm test` | Bundle load contract, manifest and patch contract, settings projection (live volatile reads, env fallback, out-of-range fallback), every ported parser (`adb devices`, `emulator -list-avds`, UI Automator XML, `input text` escaping, APK selection, JDK major normalisation), the SDK `adb` fallback search, and the lossless-JSON projection |
-| Configuration page render | `pnpm test` (`client-render.test.js`) | The whole form rendered with real React and `react-dom/server`: with the switch off the only registration is `plugins.bundle.config` keyed by the package name and no Settings slot is injected, with it on the bundle also registers `settings.section` and its `settings.section.icon` contribution, the section's id, order, locale and nav label resolve, the icon is the exact component registered into `settings.section.icon` and renders as a masked box over `currentColor` whose mask points at the published package asset, identical in both states, toggling the switch back off disposes both, every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, the override badge and reset, both route buttons, no title of its own, and no action bar while nothing is staged |
-| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, exactly three slot registrations exist and each takes its slot name from `PLUGIN_SURFACE` or `SETTINGS_SURFACE` instead of repeating a literal, the Plugins page entry is keyed by the package name and carries no id, the Settings section takes its id, order, label thunk and locale from the surface, the icon takes the same id as its section, and `settings.section` / `settings.section.icon` appear nowhere outside `SETTINGS_SURFACE`; the gate then mounts the real `apply` to observe the switch, requiring no Settings registration and no Settings slot injection while it is off, both entries with a label that resolves to an entry of the bundle's own dictionary while it is on, and both disposed once it is saved off; the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, every field's kind is one the page actually renders (checked against the `RENDERERS` map's own keys, not just against the exported list), every `suggest` names a list the page provides (and a `discovery` field must carry one, because its dropdown has no other source), the two fixed dictionaries carry the same keys and every declared option label sits under the exact `field.<key>.option.<optionKey(value)>` key the page looks up, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
+| Configuration page render | `pnpm test` (`client-render.test.js`) | The whole form rendered with real React and `react-dom/server`: with the switch off the only registration is `plugins.row.config` keyed by `<package name>#<row id>` and no Settings slot is injected, with it on the bundle also registers `settings.section` and its `settings.section.icon` contribution, the section's id, order, locale and nav label resolve, the icon is the exact component registered into `settings.section.icon` and renders as a masked box over `currentColor` whose mask points at the published package asset, identical in both states, toggling the switch back off disposes both, the `summary` view renders one sentence and no card or control, every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, the override badge and reset, both route buttons, no title of its own, and no action bar while nothing is staged |
+| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, exactly three slot registrations exist and each takes its slot name from `PLUGIN_SURFACE` or `SETTINGS_SURFACE` instead of repeating a literal, the row page entry is keyed by `<package name>#<row id>` and carries no id, the Settings section takes its id, order, label thunk and locale from the surface, the icon takes the same id as its section, and `settings.section` / `settings.section.icon` appear nowhere outside `SETTINGS_SURFACE`; the gate then mounts the real `apply` to observe the switch, requiring no Settings registration and no Settings slot injection while it is off, both entries with a label that resolves to an entry of the bundle's own dictionary while it is on, and both disposed once it is saved off; the two field tables and the two group tables match key-for-key and in order, every heading, hint, placeholder and option matches the host **word for word in both languages**, every field's kind is one the page actually renders (checked against the `RENDERERS` map's own keys, not just against the exported list), every `suggest` names a list the page provides (and a `discovery` field must carry one, because its dropdown has no other source), the two fixed dictionaries carry the same keys and every declared option label sits under the exact `field.<key>.option.<optionKey(value)>` key the page looks up, both routes agree on both sides, `locale/*.json` carries the same keys in both languages, and the bundle is still a classic script |
 | Route integration | `test/routes-integration.test.js` | The two configuration routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 18 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing both routes |
 | Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, **all 23 dispatched through the registry**, every argument schema enforced by the registry, every declared result schema validated for shape (device-backed tools fail before a value exists), malformed arguments refused, unknown names unresolved, 18 volatile fields, full unregistration on dispose |
 | Type gate | `tsc -p tsconfig.json --noEmit` and `tsc -p tsconfig.client.json --noEmit` | The host half's contracts against the real `@deepseek-ai/*` declarations, and the browser half's contracts against the real `react` and the real `dsh-client-ui-primitives` declarations — the two halves checked apart, because they run in different realms |
@@ -594,7 +600,7 @@ behaviour and will report the bugs this version fixed.
   `.gradle/`, `*.tgz`, coverage. `assets/` and `screenshots.json` are the one
   curated exception, and only the four files the gallery names.
 - Register a Settings entry that is not gated by the `showInSettings` switch.
-  The unconditional registration is the Plugins page's `plugins.bundle.config`;
+  The unconditional registration is the Plugins page's `plugins.row.config`;
   a `settings.section` entry and its `settings.section.icon` may exist only
   while that saved switch is on, so a profile that never enables it keeps
   exactly one configuration page, and both Settings registrations take their

@@ -25,8 +25,8 @@ import { loadBundle } from './load-bundle.mjs'
 
 /** The namespace the page must bind to (the patch row id). */
 const EXPECTED_NS = 'android-emulator-helper'
-/** The slot the Plugins page renders a bundle's own configuration through. */
-const PLUGIN_PAGE_SLOT = 'plugins.bundle.config'
+/** The slot the Plugins page opens a row's own configuration page through. */
+const PLUGIN_PAGE_SLOT = 'plugins.row.config'
 /** The two optional Settings contributions, by the names the bundle registers. */
 const SETTINGS_SECTION_SLOT = 'settings.section'
 const SETTINGS_ICON_SLOT = 'settings.section.icon'
@@ -249,12 +249,13 @@ function faceToProps(face) {
  *
  * @param {{ctx: object, registered: object}} host - the mount.
  * @param {string} [name] - the slot name whose entry is rendered.
+ * @param {string} [view] - the view the page asks for; `page` unless a caller wants the summary.
  * @returns {object | undefined} the props, or undefined when nothing registered.
  */
-function propsFor(host, name = PLUGIN_PAGE_SLOT) {
+function propsFor(host, name = PLUGIN_PAGE_SLOT, view = 'page') {
   const record = registrationFor(host, name)
   if (record === undefined) return undefined
-  return { t: host.ctx.locale.bind(record.options.locale), view: 'page', ...faceToProps(record.options.inject()) }
+  return { t: host.ctx.locale.bind(record.options.locale), view, ...faceToProps(record.options.inject()) }
 }
 
 /** Render one mount's plugin-page component to markup. */
@@ -301,23 +302,30 @@ if (registrationFor(main) === undefined) {
     dictionaryNamespaces: [...new Set(main.registered.dictionaries.map((entry) => entry.ns))],
   }
 
-  // The plugin detail page keys a bundle's configuration by the BUNDLE's
-  // package name and draws the title, icon and crumb itself — so the entry
-  // carries neither the settings navigation's label nor its order.
+  // The row's page keys a row's configuration by `<package name>#<row id>` and
+  // draws the title, icon and crumb itself — so the entry carries neither the
+  // settings navigation's label nor its order.
   for (const [key, expected] of [
-    ['name', 'plugins.bundle.config'],
-    ['key', '@zhz8888/dsh-android-emulator-helper'],
+    ['name', 'plugins.row.config'],
+    ['key', '@zhz8888/dsh-android-emulator-helper#android-emulator-helper'],
     ['locale', 'settings.androidEmulatorHelper'],
   ]) {
     if (options[key] !== expected) {
       report.failures.push(`slot option ${key}=${JSON.stringify(options[key])} (want ${JSON.stringify(expected)})`)
     }
   }
-  if (options.label !== undefined) report.failures.push('the plugin detail page draws its own title; the entry must not register a label')
-  if (options.id !== undefined) report.failures.push('the Plugins page entry is keyed by the package name; it must not carry an id')
+  if (options.label !== undefined) report.failures.push('the row page draws its own title; the entry must not register a label')
+  if (options.id !== undefined) report.failures.push('the row page entry is keyed by <package>#<row id>; it must not carry an id')
 
   try {
     report.markup = render(main)
+    // The row's detail page renders `view: 'summary'` in its description slot
+    // when the row's package description is absent, so the entry must answer
+    // that view with a sentence rather than the whole form — a form there would
+    // be drawn twice on the page that already holds it.
+    report.summaryMarkup = renderToStaticMarkup(
+      React.createElement(record.component, propsFor(main, PLUGIN_PAGE_SLOT, 'summary')),
+    )
   } catch (error) {
     report.failures.push(`render threw: ${error.stack ?? error.message}`)
   }

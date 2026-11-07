@@ -14,7 +14,7 @@ import { ROOT, loadBundle } from './helpers/load-bundle.mjs'
  * key, a field the host never sends, an `inject` face that does not match what
  * the slot renderer calls, or an uncontrolled input. Rendering it through
  * `react-dom/server` turns all of those into a failing test instead of a broken
- * plugin detail page.
+ * plugin page.
  *
  * The same suite covers the optional Settings entry: with the page's own switch
  * off the mount must touch the Settings surface not at all, and with it on the
@@ -51,23 +51,22 @@ test('the configuration form renders without throwing', () => {
 
 test('the plugin page is registered unconditionally, and the Settings entry only when asked for', () => {
   // A plugin's own configuration belongs on the Plugins page: the
-  // `plugins.bundle.config` slot is keyed by the BUNDLE's package name, and the
-  // page renders the entry inside the plugin detail. The Settings dialog's
-  // `settings.section` is opt-in, so the default mount must not touch it at
-  // all — one injected slot, one registration, and no label or id on the entry
-  // the Plugins page draws the chrome for.
-  assert.equal(report.registered.slot, 'plugins.bundle.config')
-  assert.equal(report.registered.key, '@zhz8888/dsh-android-emulator-helper')
+  // `plugins.row.config` slot is keyed by `<package name>#<row id>`, and the
+  // page renders the entry on the page the row's Configure control opens. The
+  // Settings dialog's `settings.section` is opt-in, so the default mount must
+  // not touch it at all — one injected slot, one registration, and no label or
+  // id on the entry the row's page draws the chrome for.
+  assert.equal(report.registered.slot, 'plugins.row.config')
+  assert.equal(report.registered.key, '@zhz8888/dsh-android-emulator-helper#android-emulator-helper')
   assert.equal(report.registered.locale, 'settings.androidEmulatorHelper')
-  assert.deepEqual(report.registered.slots, ['plugins.bundle.config'])
-  assert.deepEqual(report.disabled.slots, ['plugins.bundle.config'], 'no Settings slot is injected while the switch is off')
-  assert.deepEqual(report.disabled.registered, ['plugins.bundle.config'], 'and no Settings entry is registered')
+  assert.deepEqual(report.registered.slots, ['plugins.row.config'])
+  assert.deepEqual(report.disabled.slots, ['plugins.row.config'], 'no Settings slot is injected while the switch is off')
+  assert.deepEqual(report.disabled.registered, ['plugins.row.config'], 'and no Settings entry is registered')
 })
 
 test('the injected face carries the form actions and the view the page asks for', () => {
-  // The page asks for `view: 'page'`; there is no summary view for a bundle's
-  // own configuration, and the form needs no `label` of its own because the
-  // page draws the title.
+  // The page asks for `view: 'page'` on the row's own page, and the form needs
+  // no `label` of its own because that page draws the title.
   assert.deepEqual(report.registered.injectKeys, [
     'discard',
     'edit',
@@ -79,6 +78,18 @@ test('the injected face carries the form actions and the view the page asks for'
     'useAndroidEmulatorSettings',
     'view',
   ])
+})
+
+test('the summary view is one sentence, not the form', () => {
+  // A row's detail page renders `view: 'summary'` in its description slot when
+  // the row's package description is absent. Answering that with the form would
+  // draw the whole page twice — once in the description and once below it — so
+  // the entry must answer with a sentence and no controls.
+  assert.ok(report.summaryMarkup.length > 0, 'the summary view must render something')
+  assert.ok(!report.summaryMarkup.includes('aemh_group'), 'the summary must not render a card')
+  assert.ok(!report.summaryMarkup.includes('aemh_control'), 'the summary must not render a control')
+  assert.ok(!report.summaryMarkup.includes('SDK and toolchain'), 'the summary must not render a group heading')
+  assert.match(report.summaryMarkup, /SDK, emulator, system-image, build and output parameters/)
 })
 
 test('with the switch saved on, the form is also a Settings section', () => {
@@ -96,15 +107,15 @@ test('with the switch saved on, the form is also a Settings section', () => {
   assert.equal(icon.id, section.id, 'the shell pairs a section with its icon by id')
   assert.deepEqual(
     report.settings.injected,
-    ['plugins.bundle.config', 'settings.section.icon', 'settings.section'],
-    'the plugin page keeps its slot, and both Settings contributions are injected',
+    ['plugins.row.config', 'settings.section.icon', 'settings.section'],
+    'the row page keeps its slot, and both Settings contributions are injected',
   )
 })
 
 test('the Settings section renders the same form and the same face as the plugin page', () => {
   // The section is not a second form: it is the same component over the same
   // controller, so a save made from Settings is staged and written exactly as
-  // one made from the plugin detail page.
+  // one made from the row's own page.
   assert.equal(report.settings.sameComponent, true, 'the section renders the plugin page component')
   assert.equal(report.settings.sameHookStore, true, 'and reads the same snapshot store')
   assert.deepEqual(report.settings.section.injectKeys, report.settings.pluginPageInjectKeys)
@@ -162,7 +173,7 @@ test('the Settings entry follows the switch without a reload', () => {
   // subscriber: both contributions dispose, and the plugin page is untouched.
   assert.equal(report.toggled.sectionDisposed, true, 'the section disposer runs')
   assert.equal(report.toggled.iconDisposed, true, 'the icon disposer runs')
-  assert.deepEqual(report.toggled.remaining, ['plugins.bundle.config'], 'only the plugin page stays registered')
+  assert.deepEqual(report.toggled.remaining, ['plugins.row.config'], 'only the row page stays registered')
 })
 
 test('every field group is rendered with its heading and hint', () => {
@@ -466,7 +477,7 @@ function mountWith(primitives) {
   } catch (error) {
     record.applyError = error
   }
-  record.pluginPage = record.registrations.find((registration) => registration.entry.name === 'plugins.bundle.config')
+  record.pluginPage = record.registrations.find((registration) => registration.entry.name === 'plugins.row.config')
   return record
 }
 
