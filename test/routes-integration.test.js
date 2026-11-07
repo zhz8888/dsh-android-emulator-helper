@@ -78,7 +78,13 @@ async function mount(options = {}) {
     // Cordis hands `apply` one live reference per volatile field. They are the
     // handles the settings form writes through, and the fixture keeps them so a
     // test can save a value the way the form does.
-    refs: fiber.config ?? {},
+    //
+    // `effectiveConfig` is the validated object `apply` received; `config` is
+    // the raw input the entry was mounted with, which is `{}` here because the
+    // schema supplies every default. Cordis 4.1 split the two — reading `config`
+    // used to return the resolved object — so the fixture reads the accessor
+    // that still means "what the plugin is running with".
+    refs: fiber.effectiveConfig ?? {},
     dispose: async () => {
       await fiber.dispose()
     },

@@ -61,9 +61,9 @@
       ]
     },
     "compatibility": {
-      "dsh": ">=0.2.1-rc.2",
+      "dsh": ">=0.2.2-rc.1",
       "dshReleases": {
-        "0.2.1-rc.2": "compatible"
+        "0.2.2-rc.1": "compatible"
       }
     }
   },
@@ -77,12 +77,13 @@
     "link:dsh-deps": "node scripts/link-dsh-deps.mjs"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": ">=4.0.5",
-    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2",
-    "@deepseek-ai/schemastery": ">=3.18.4"
+    "@deepseek-ai/cordis": ">=4.1.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.2-rc.1",
+    "@deepseek-ai/schemastery": ">=3.19.0"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.1",
     "@types/node": "22.20.0",
     "@types/react": "^18.3.31",
     "react": "^18.3.1",
@@ -91,7 +92,7 @@
   },
   "engines": {
     "node": ">=22",
-    "dsh": ">=0.2.1-rc.2"
+    "dsh": ">=0.2.2-rc.1"
   },
   "packageManager": "pnpm@11.8.0"
 }

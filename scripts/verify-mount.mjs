@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolRuntime, validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutorPlugin from '@deepseek-ai/dsh-tool-executor-native'
 import * as plugin from '../lib/index.js'
 import { FIELD_KEYS } from '../lib/settings.js'
 
@@ -52,9 +53,27 @@ ctx.provide('systemPrompt', {
   },
 })
 
-const runtimeFiber = ctx.plugin(ToolRuntime, { mode: 'native' })
+// The runtime takes no config of its own in DSH 0.2.2: `mode` and
+// `maxParallelSubCalls` are `z.never()` there — the executor is chosen by
+// mounting a native or PTC executor, not by a switch — so passing either one
+// fails validation before the plugin is even reached.
+const runtimeFiber = ctx.plugin(ToolRuntime, {})
 await runtimeFiber
 check('the real ToolRuntime mounted', ctx.get('tools') !== undefined)
+
+// DSH 0.2.2 also made the executor a separate row: the registry refuses to
+// describe or dispatch anything until one is mounted, so the deployment's own
+// native executor is mounted here exactly as `dsh-base` mounts it. Without it
+// every dispatch below would fail with TOOL_EXECUTOR_UNAVAILABLE rather than
+// exercising the plugin.
+//
+// The package is mounted as its own plugin object rather than as the bare
+// `NativeToolExecutor` class: the class reads `ctx.tools` in its constructor,
+// and only the package's `inject: ['tools']` declaration makes that service
+// available at construction time.
+const executorFiber = ctx.plugin(NativeToolExecutorPlugin, {})
+await executorFiber
+check('the native tool executor mounted', true)
 
 // `ctx.plugin` re-validates against Config, so hand it the RAW config (a
 // pre-parsed volatile object would fail validation).
@@ -182,8 +201,27 @@ const undispatched = visible.filter((name) => !dispatched.includes(name))
 check('this gate dispatches every registered android_* tool', undispatched.length === 0, undispatched)
 
 let call = 0
+
+/**
+ * Dispatch one call through the real registry and return its settled result.
+ *
+ * DSH 0.2.2 changed `tools.execute` from a single call to a batch: it takes
+ * `{ calls: [...] }` and answers `{ results: [{ callId, result }] }`. The
+ * executor is what owns that shape, so this helper is the one place the gate
+ * adapts to it — every assertion below still reads a single tool's result.
+ *
+ * @param {{name: string, arguments: Record<string, unknown>, callId: string}} request - the call to dispatch.
+ * @returns {Promise<Record<string, any>>} the settled result for that call.
+ */
+async function dispatch(request) {
+  const batch = await tools.execute({ calls: [{ id: request.callId, name: request.name, arguments: JSON.stringify(request.arguments) }], signal })
+  const settled = batch.results.find((entry) => entry.callId === request.callId)
+  assert.ok(settled !== undefined, `the batch settled no result for ${request.callId}`)
+  return settled.result
+}
+
 for (const name of ALWAYS) {
-  const result = await tools.execute({ name, arguments: {}, callId: `verify-${++call}`, signal })
+  const result = await dispatch({ name, arguments: {}, callId: `verify-${++call}` })
   check(`${name} dispatched through the real registry`, result.isError !== true, result.error?.message?.slice(0, 90))
   const payload = result.content?.find((block) => block.type === 'text')?.text ?? ''
   check(`${name} rendered model-visible JSON`, payload.trimStart().startsWith('{'), payload.slice(0, 50))
@@ -193,7 +231,7 @@ for (const name of ALWAYS) {
 // whatever the developer's machine happens to hold. It also proves the scan
 // path through the registry: `emulator -list-avds` may be missing or unable to
 // start here, and the record still has to be listed.
-const avdResult = await tools.execute({ name: 'android_list_avds', arguments: {}, callId: 'verify-avd', signal })
+const avdResult = await dispatch({ name: 'android_list_avds', arguments: {}, callId: 'verify-avd' })
 /** @type {string[]} */
 let avdNames = []
 try {
@@ -206,7 +244,7 @@ try {
 check('android_list_avds lists the pinned AVD directory', avdNames.includes('VerifyMount'), avdNames)
 
 for (const [name, args] of DEVICE_TOOLS) {
-  const result = await tools.execute({ name, arguments: args, callId: `verify-${++call}`, signal })
+  const result = await dispatch({ name, arguments: args, callId: `verify-${++call}` })
   // A provider-level refusal is the expected outcome; a registry-level rejection
   // is not. The registry's result-schema error message is "returned invalid
   // output", an argument error is "invalid arguments", and an unregistered name
@@ -225,16 +263,15 @@ for (const [name, args] of DEVICE_TOOLS) {
 
 // Argument validation is the registry's, not ours: a wrong type must be refused
 // before the body runs.
-const badArgs = await tools.execute({
+const badArgs = await dispatch({
   name: 'android_ui_tap',
   arguments: { x: 'not-a-number', y: 1 },
   callId: 'verify-2',
-  signal,
 })
 check('a malformed argument is refused by the registry', badArgs.isError === true, badArgs.error?.message?.slice(0, 80))
 
 // A name the plugin never registered must not resolve.
-const unknown = await tools.execute({ name: 'android_not_a_tool', arguments: {}, callId: 'verify-3', signal })
+const unknown = await dispatch({ name: 'android_not_a_tool', arguments: {}, callId: 'verify-3' })
 check('an unknown tool name does not resolve', unknown.isError === true, unknown.error?.code)
 
 // ── the settings namespace the browser half waits for ────────────────────────

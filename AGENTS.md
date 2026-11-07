@@ -17,7 +17,7 @@ on purpose — the browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 369 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 370 tests: unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -185,10 +185,10 @@ the marketplace copy.
 
 ## The DSH requirement is one range, declared three times
 
-`>=0.2.1-rc.2`, a lower bound only, is written identically in
+`>=0.2.2-rc.1`, a lower bound only, is written identically in
 `peerDependencies['@deepseek-ai/dsh-tools']`, `engines.dsh` and
 `dsh.compatibility.dsh`; `dsh.compatibility.dshReleases` names the release the
-plugin was actually exercised against: `0.2.1-rc.2`, which is also the floor —
+plugin was actually exercised against: `0.2.2-rc.1`, which is also the floor —
 the release the Plugins-page configuration was built and verified on. Only the
 peer range is enforced — `dsh plugin add` resolves the `@deepseek-ai/dsh*`
 peers, while the harness reads neither `engines.dsh` nor `dsh.compatibility`
@@ -201,8 +201,36 @@ prereleases of the next version tuple, which is what makes pnpm fail an install
 the harness would have allowed. `cordis` and `schemastery` are widened for the
 same reason: the gate reads only the `@deepseek-ai/dsh*` peers, but pnpm still
 resolves every peer. `@deepseek-ai/cordis`'s floor moves with the DSH floor, not
-with this plugin: the 0.2.1-rc.2 packages peer on `~4.0.5`, so this package
-requires `>=4.0.5` — still a lower bound only.
+with this plugin: the 0.2.2-rc.1 packages peer on `~4.1.0`, so this package
+requires `>=4.1.0` — still a lower bound only. `schemastery` follows the same
+rule and sits at `>=3.19.0`, the version that release ships.
+
+### What the 0.2.2 floor actually changed
+
+The floor is not a formality: three harness APIs this repository uses moved, and
+each one is a hard failure rather than a degradation, which is why the floor
+moved with them.
+
+- **`fiber.config` is the raw input now.** Cordis 4.1 split the resolved object
+  out into `fiber.effectiveConfig`; `config` holds what the entry was mounted
+  with, which is `{}` when the schema supplies every default. A fixture that
+  reads `fiber.config` to get the 18 volatile references gets nothing.
+  `test/routes-integration.test.js` reads `effectiveConfig`.
+- **The tool executor is its own row.** `@deepseek-ai/dsh-tools` no longer
+  accepts `mode` — it is `z.never()` — and the registry throws
+  `TOOL_EXECUTOR_UNAVAILABLE` until a native or PTC executor is mounted, exactly
+  as `dsh-base` mounts `@deepseek-ai/dsh-tool-executor-native`. `verify-mount`
+  mounts that package as a plugin object (its own `inject: ['tools']` is what
+  makes `ctx.tools` readable in the executor's constructor).
+- **`tools.execute` takes a batch.** It is `{ calls: [{ id, name, arguments }] }`
+  answering `{ results: [{ callId, result }] }`, not a single call. The mount
+  script adapts in one `dispatch()` helper so every assertion still reads one
+  tool's result.
+
+`@deepseek-ai/dsh-tool-executor-native` is a **devDependency**, not a peer: only
+`scripts/verify-mount.mjs` imports it, and `scripts/` never ships. The manifest
+test enforces the split — `lib/` imports must be peers, `scripts/` imports must
+be peers or devDependencies.
 
 ## Registry constraints that shape the tools
 
@@ -409,7 +437,7 @@ business. The strictness flags are `strict` plus `noUncheckedIndexedAccess`,
 The toolchain that makes this possible is a devDependency, not a runtime
 dependency: `typescript@6.0.3`, `@types/node@22.20.0` and `@types/react@18`
 give the checker real declarations, and
-`@deepseek-ai/dsh-client-ui-primitives@0.2.1-rc.2` gives it the real
+`@deepseek-ai/dsh-client-ui-primitives@0.2.2-rc.1` gives it the real
 primitives — pinned to that exact version, because its `latest` dist-tag still
 points at a stale release whose types do not match the runtime API.
 
@@ -498,7 +526,7 @@ Two limits are accepted rather than worked around:
   `latest` dist-tag still points at `0.0.1-rc.1`, whose declarations match
   neither the runtime API nor this plugin: five of the primitives the browser
   half uses — `SettingsFormModel`, `settingsTextField`, `Switch`, `Tag` and
-  `Toast` — are missing from it. `0.2.1-rc.2` carries 89 `.d.ts` files and
+  `Toast` — are missing from it. `0.2.2-rc.1` carries 103 `.d.ts` files and
   covers every one of them, so the repository pins that exact version. The
   render test still uses a faithful double for the primitives while React and
   `react-dom/server` stay real — and that is a choice, not a consequence of a
@@ -589,7 +617,7 @@ behaviour and will report the bugs this version fixed.
   see real declarations, and nothing they provide is loaded at run time.
   `@deepseek-ai/dsh-client-ui-primitives` is **not** a plugin peer either — the
   browser half gets it from the shell's seed table — so it does not belong in
-  `peerDependencies`, and it stays pinned to the exact version `0.2.1-rc.2`
+  `peerDependencies`, and it stays pinned to the exact version `0.2.2-rc.1`
   because its `latest` tag still points at a stale release.
 - Put an upper bound on a `@deepseek-ai/*` range, or declare the DSH requirement
   in fewer than all three places.

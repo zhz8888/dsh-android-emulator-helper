@@ -202,17 +202,36 @@ test('the declared bundle patch exists, so the package is installable', () => {
   assert.ok(existsSync(path.join(ROOT, manifest.dsh.bundle.patch)), `${manifest.dsh.bundle.patch} is missing`)
 })
 
-test('every official package the source imports is a peer dependency', () => {
+test('every official package the shipped source imports is a peer dependency', () => {
   // Official @deepseek-ai/* packages are provided by the host: the profile
   // already carries them, and resolving to that copy keeps one schemastery
   // instance behind the settings form. Bundling a second copy is the failure
   // this guards against — hence no `dependencies` block at all.
+  //
+  // Only `lib/` is the shipped source. `scripts/` is development tooling that
+  // never enters the tarball, so a package it imports to *drive* the harness —
+  // the native tool executor `verify-mount` mounts, for instance — is a
+  // devDependency, not a contract the installed plugin has with its host.
   assert.equal(manifest.dependencies, undefined)
-  const imported = officialImports('lib', 'scripts')
+  const imported = officialImports('lib')
   assert.ok(imported.size > 0, 'expected to find official imports')
   for (const specifier of imported) {
     const name = specifier.split('/').slice(0, 2).join('/')
     assert.ok(name in manifest.peerDependencies, `${name} must be a peerDependency, not an installed dependency`)
+  }
+})
+
+test('every official package the development scripts import is installed for them', () => {
+  // The other half of the rule above: a script's import has to resolve on a
+  // fresh `pnpm install`, so it is either a peer (already installed for the
+  // type gate) or a devDependency. An import that is neither fails here instead
+  // of failing `pnpm run check` on someone else's machine.
+  const imported = officialImports('scripts')
+  assert.ok(imported.size > 0, 'expected to find official imports in scripts/')
+  for (const specifier of imported) {
+    const name = specifier.split('/').slice(0, 2).join('/')
+    const declared = name in manifest.peerDependencies || name in (manifest.devDependencies ?? {})
+    assert.ok(declared, `${name} is imported by scripts/ but is neither a peerDependency nor a devDependency`)
   }
 })
 
@@ -233,13 +252,13 @@ test('the DSH range is declared identically in all three places', () => {
   // `@deepseek-ai/dsh*` peers, while the harness reads neither `engines.dsh` nor
   // `dsh.compatibility` today. A requirement that is documented but declared
   // somewhere else is worse than none, so the three copies are compared here and
-  // `dshReleases` records the release actually exercised: 0.2.1-rc.2, the floor
+  // `dshReleases` records the release actually exercised: 0.2.2-rc.1, the floor
   // and the release the Plugins-page page was built and verified against.
   const range = manifest.peerDependencies['@deepseek-ai/dsh-tools']
-  assert.equal(range, '>=0.2.1-rc.2')
+  assert.equal(range, '>=0.2.2-rc.1')
   assert.equal(manifest.engines.dsh, range)
   assert.equal(manifest.dsh.compatibility.dsh, range)
-  assert.deepEqual(manifest.dsh.compatibility.dshReleases, { '0.2.1-rc.2': 'compatible' })
+  assert.deepEqual(manifest.dsh.compatibility.dshReleases, { '0.2.2-rc.1': 'compatible' })
   assert.match(range, /^>=/, 'the DSH requirement must state a lower bound only')
 })
 
