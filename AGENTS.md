@@ -18,7 +18,7 @@ on purpose — the browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 370 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 387 tests: unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -73,7 +73,7 @@ dsh-android-emulator-helper/
 │   ├── assets/             # the Settings rail icon, published as `./assets/*` for the Host's asset route
 │   └── util/               # process execution, paths, content blocks, Windows registry/drive discovery, Java properties
 ├── skills/android-dev/     # SKILL.md + INSTALL_ENVIRONMENT.md
-├── scripts/                # check-bundle.mjs (consistency gate), smoke.mjs (real-machine), verify-mount.mjs
+├── scripts/                # check-bundle.mjs (consistency gate), smoke.mjs (real-machine), verify-mount.mjs, link-dsh-deps.mjs
 ├── types/                  # client-globals.d.ts: window.__ModuleLoader__ and the shell's run-time require
 ├── assets/                 # the four settings-page screenshots `screenshots.json` names
 └── test/                   # node:test unit and integration suites; helpers/fake-tool.mjs renders the fake tools
@@ -546,13 +546,16 @@ Three consequences worth knowing:
   it at the throwaway tree, as the fake-tool runtimes do.
 
 The tests skipped on Windows are the ones whose contract **is** POSIX — SIGTERM
-trap-and-escalate, a grandchild holding a pipe open, and a directory symlink
+trap-and-escalate, a child killed by a signal (Windows has no signal deaths),
+a grandchild holding a pipe open, and a directory symlink
 fixture (which needs `SeCreateSymbolicLinkPrivilege`) — plus the seed-table
 check, which skips when no installed DSH web frontend can be located on the
 platform (`DSH_WEB_FRONTEND` points it at one the default search cannot see), and
 the wedged-dump case: its hanging fake is a grandchild of the `.cmd` launcher,
 `run()` terminates only the launcher, and the survivor holds the runner's stdout
-pipe open. Each skip carries the reason next to it.
+pipe open. A ninth skips itself on a machine that has a real SDK: the
+UI-backend case expects no `adb` to be reachable and is skipped when the host
+resolves one inside an installed SDK. Each skip carries the reason next to it.
 
 Two limits are accepted rather than worked around:
 

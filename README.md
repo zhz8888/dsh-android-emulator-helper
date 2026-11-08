@@ -53,7 +53,7 @@ On a machine with an Android SDK, a JDK and DSH installed:
 | Android SDK | `sdkPath` on the plugin's configuration page, else `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the Windows registry, the project's `local.properties`, then the common install paths on every drive. |
 | Platform tools, emulator and a system image | `adb` and `emulator` come from the SDK; an AVD needs a system image for the API level you target. When `adb` is missing from `PATH`, the SDK's own `platform-tools` copy is used instead: a last-resort search looks for it inside the SDK the diagnostic found, and on Windows also under the drive roots, because a machine with the SDK installed must not be reported as having no `adb`. |
 | JDK | `jdkMajor` (`17` by default) selects the JDK a build runs on; the nearest installed JDK is used when that major is missing, and the generated project's JVM target follows the JDK in use and is clamped to [17, 21]. |
-| Gradle | `android_build_app` uses the project's `./gradlew` when it has one and `gradle` from `PATH` otherwise; a generated wrapper is pinned to the installed Gradle's version but never below **8.9**, the floor the bundled Android Gradle Plugin 8.7.3 accepts. The project `android_create_app` writes ships no wrapper. |
+| Gradle | `android_build_app` uses the project's `./gradlew` when it has one and `gradle` from `PATH` otherwise; a generated wrapper is pinned to the installed Gradle's version but never below **8.9**, the floor the bundled Android Gradle Plugin 8.7.3 accepts. The project `android_create_app` writes ships no wrapper either. |
 | A device or an AVD | An attached device, or an AVD to boot; `autoStartEmulator` decides whether the tools may boot one themselves. |
 | Node.js ≥ 22 | The DSH host runtime. |
 
@@ -129,7 +129,7 @@ The page's copy is **not** a route. Every label, hint and placeholder lives in `
 
 ### Legacy configuration
 
-The original plugin's `userConfig` — the seven variables in the last column above — still works as a fallback (last column above), so an existing ZCode or CI setup needs no change: the resolution order is configuration page → environment variable → declared default. The original also read `ANDROID_PLUGIN_DATA` for its data directory; here that directory is the page's `dataDir` field.
+The original plugin's `userConfig` — the seven variables in the last column above — still works as a fallback, so an existing ZCode or CI setup needs no change: the resolution order is configuration page → environment variable → declared default. The original also read `ANDROID_PLUGIN_DATA` for its data directory; here that directory is the page's `dataDir` field.
 
 ## Screenshots
 
