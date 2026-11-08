@@ -133,8 +133,9 @@ The original plugin's `userConfig` — the seven variables in the last column ab
 
 ## Screenshots
 
-All four are the live page in DSH harness 0.2.1-rc.3, in the order you scroll it
-— nothing is mocked up. They are 1598 × 1588 PNGs of the tightened card rhythm
+All four are real captures of this configuration page — nothing is mocked up —
+taken in DSH harness 0.2.1-rc.3, in the order you scroll it. They are
+1598 × 1588 PNGs of the tightened card rhythm
 (7px above and below a field, a `12px 16px` card, 16px between cards), captured
 in the Chinese locale with the **Plugins** panel open on the plugin's own detail
 page: the first shot opens on the plugin's title **Android 模拟器助手** and
@@ -144,7 +145,7 @@ for a field left empty, a field carrying a value other than its declared default
 shows an override badge and a reset control, and the sticky save bar appears
 only while an edit is staged, so it is not in these shots.
 
-The four predate the move onto the row's own page: they were captured while the
+They do predate the move onto the row's own page: they were captured while the
 form still rendered inline on the bundle's detail page, so the page they show
 sits one click earlier than the one the plugin opens today. The form itself —
 every card, field, label and hint — is unchanged, and the gallery is re-captured
@@ -182,6 +183,7 @@ closes the page is below this capture:
 The interface card and the optional Settings section are newer than these four
 captures, so the shots stop one card short of the page; the gallery is
 re-captured after the next host restart.
+
 `screenshots.json` lists these four files in this order next to `package.json` in
 the repository, which is how a plugin market finds them.
 
