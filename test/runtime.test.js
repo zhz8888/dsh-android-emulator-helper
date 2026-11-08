@@ -189,6 +189,20 @@ test('the runtime data root follows DSH_HOME when no data directory is configure
   assert.equal(rt.dataRoot, path.join('/dsh', DATA_DIR_NAME))
 })
 
+test('a relative DSH_HOME still yields an absolute data root', () => {
+  // A relative DSH_HOME would otherwise make the data root relative, and a
+  // relative data root is created against whatever directory the process
+  // happens to be in — the host's, not the session's.
+  const root = defaultDataRoot({ DSH_HOME: 'relative-dsh' }, WORKSPACE)
+  assert.equal(path.isAbsolute(root), true)
+  assert.equal(root, path.resolve(WORKSPACE, 'relative-dsh', DATA_DIR_NAME))
+})
+
+test('the runtime resolves a relative DSH_HOME against the session workspace', () => {
+  const rt = createRuntime({ config: {}, exec: execWithCwd(WORKSPACE), env: { DSH_HOME: 'relative-dsh' } })
+  assert.equal(rt.dataRoot, path.resolve(WORKSPACE, 'relative-dsh', DATA_DIR_NAME))
+})
+
 test('an agent without a tool execution record still supplies the workspace', () => {
   const rt = createRuntime({ config: {}, agent: execWithCwd(WORKSPACE).agent, env: {} })
   assert.equal(rt.cwd, WORKSPACE)
