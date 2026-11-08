@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import * as primitives from './primitives-double.mjs'
-import { loadBundle } from './load-bundle.mjs'
+import { ROOT, loadBundle } from './load-bundle.mjs'
 
 /**
  * Render the plugin's configuration page and print a JSON report.
@@ -21,6 +23,12 @@ import { loadBundle } from './load-bundle.mjs'
  * switched-on registrations, and the disposal that follows a switch-off. That
  * is the only way to prove the registration is live rather than decided once
  * at load time.
+ *
+ * The page's copy is not in the bundle: it is fetched from the host's locale
+ * route, which serves `locale/en.json` and `locale/zh.json`. The fake host
+ * answers that route from those same two files, so what this report renders is
+ * the copy a real page renders — and a key missing from either file shows up
+ * here as a raw key in the markup rather than passing silently.
  */
 
 /** The namespace the page must bind to (the patch row id). */
@@ -30,6 +38,20 @@ const PLUGIN_PAGE_SLOT = 'plugins.row.config'
 /** The two optional Settings contributions, by the names the bundle registers. */
 const SETTINGS_SECTION_SLOT = 'settings.section'
 const SETTINGS_ICON_SLOT = 'settings.section.icon'
+
+/**
+ * The dictionaries the host's locale route serves.
+ *
+ * Read from the same two files the host half reads, so this report cannot
+ * disagree with the shipped copy.
+ *
+ * @returns {{en: Record<string, string>, zh: Record<string, string>}} the dictionaries.
+ */
+function localePayload() {
+  const read = (language) =>
+    JSON.parse(readFileSync(path.join(ROOT, 'locale', `${language}.json`), 'utf8')).settings
+  return { en: read('en'), zh: read('zh') }
+}
 
 const report = { failures: [], markup: '', registered: null }
 
@@ -191,6 +213,37 @@ const { exported } = loadBundle({
     throw new Error(`unexpected require in the render test: ${specifier}`)
   },
 })
+
+/**
+ * Answer the bundle's locale fetch from the shipped files.
+ *
+ * The bundle reads its copy through `fetch(LOCALE_ROUTE)`, so the fake host
+ * installs a `fetch` for the duration of this script. It answers the locale
+ * route with the two real dictionaries and refuses anything else, so a bundle
+ * that started calling a route this plugin does not register fails loudly here
+ * instead of silently getting an empty answer.
+ */
+const LOCALE_ROUTE = '/api/android-emulator-helper/locale'
+const realFetch = globalThis.fetch
+globalThis.fetch = async (url, init) => {
+  if (String(url) === LOCALE_ROUTE) {
+    return new Response(JSON.stringify(localePayload()), {
+      status: 200,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    })
+  }
+  if (typeof realFetch === 'function') return realFetch(url, init)
+  throw new Error(`the render test has no answer for ${String(url)}`)
+}
+
+/**
+ * Load the dictionaries before anything renders.
+ *
+ * The page fetches its copy asynchronously, so a server render that ran first
+ * would draw raw keys. Awaiting the same function the page calls is what makes
+ * the markup below the copy a real page shows.
+ */
+await exported.LOAD_DICTIONARIES()
 
 /**
  * Mount the bundle against one fake host.

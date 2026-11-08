@@ -221,7 +221,7 @@ test('apply registers the android-dev command', () => {
   assert.equal(typeof record.commands[0].handler, 'function')
 })
 
-test('apply registers exactly the two settings routes under /api', () => {
+test('apply registers exactly the three settings routes under /api', () => {
   const { ctx, record } = fakeContext()
   apply(ctx, configWith())
   assert.deepEqual(
@@ -229,6 +229,7 @@ test('apply registers exactly the two settings routes under /api', () => {
     [
       ['/api/android-emulator-helper/status', ['GET']],
       ['/api/android-emulator-helper/inventory', ['GET']],
+      ['/api/android-emulator-helper/locale', ['GET']],
     ],
   )
 })

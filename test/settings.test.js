@@ -116,12 +116,17 @@ test('the emulator-arguments example is one argv token per line', () => {
   // rejects as an unknown option. Pin the example against the real parser.
   const field = FIELDS.get('emulatorArgs')
   if (field === undefined) throw new Error('emulatorArgs is not declared')
-  const placeholder = field.placeholder ?? ''
-  const lines = placeholder.split(/\r?\n/).filter((line) => line.trim().length > 0)
-  assert.ok(lines.length > 1, 'the example must show more than one line')
-  assert.deepEqual(splitArgumentLines(placeholder), lines.map((line) => line.trim()))
-  for (const token of lines) {
-    assert.ok(!/\s/.test(token.trim()), 'one argv token per line, got ' + JSON.stringify(token))
+  // The placeholder is a dictionary entry like every other string, so it is
+  // read in both languages: the example is the same argv grammar either way,
+  // and a translation that broke the line-per-token shape would be a bug.
+  for (const language of ['en', 'zh']) {
+    const placeholder = field.placeholder?.[language] ?? ''
+    const lines = placeholder.split(/\r?\n/).filter((line) => line.trim().length > 0)
+    assert.ok(lines.length > 1, `the ${language} example must show more than one line`)
+    assert.deepEqual(splitArgumentLines(placeholder), lines.map((line) => line.trim()))
+    for (const token of lines) {
+      assert.ok(!/\s/.test(token.trim()), `one argv token per line in ${language}, got ` + JSON.stringify(token))
+    }
   }
   assert.match(field.hint?.zh ?? '', /每行一个参数/)
   assert.match(field.hint?.en ?? '', /^One argument per line/)

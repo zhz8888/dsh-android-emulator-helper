@@ -94,10 +94,11 @@ async function mount(options = {}) {
 /** The symbol Cordis' volatile reference exposes as its write channel. */
 const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
 
-test('a real Cordis mount registers exactly the two settings routes', async () => {
+test('a real Cordis mount registers exactly the three settings routes', async () => {
   const fixture = await mount()
   assert.deepEqual([...fixture.routes.keys()].sort(), [
     '/api/android-emulator-helper/inventory',
+    '/api/android-emulator-helper/locale',
     '/api/android-emulator-helper/status',
   ])
   for (const route of fixture.routes.values()) {
@@ -108,9 +109,9 @@ test('a real Cordis mount registers exactly the two settings routes', async () =
   await fixture.dispose()
 })
 
-test('disposing the fiber unregisters both routes', async () => {
+test('disposing the fiber unregisters every route', async () => {
   const fixture = await mount()
-  assert.equal(fixture.routes.size, 2)
+  assert.equal(fixture.routes.size, 3)
   await fixture.dispose()
   assert.equal(fixture.routes.size, 0, 'a disposed plugin must leave no route behind')
 })
@@ -133,6 +134,30 @@ test('the status route answers a JSON preflight report the page can render', asy
   // The settings the page shows must be part of the payload, under the same keys.
   assert.equal(typeof body.settings, 'object')
   assert.ok('apiLevel' in body.settings, 'the report must echo the live settings')
+  await fixture.dispose()
+})
+
+test('the locale route answers the dictionaries the page renders from', async () => {
+  const fixture = await mount()
+  const response = await fixture.routes.get('/api/android-emulator-helper/locale').fetch()
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get('content-type'), /^application\/json/)
+  const body = await response.json()
+  // Both languages, and the same keys in each: a key present in one file and
+  // missing from the other renders as the key itself in that language.
+  assert.deepEqual(Object.keys(body).sort(), ['en', 'zh'])
+  const en = Object.keys(body.en).sort()
+  const zh = Object.keys(body.zh).sort()
+  assert.deepEqual(zh, en, 'both languages must declare the same keys')
+  assert.ok(en.length > 0, 'the dictionaries must not be empty')
+  // The page looks every string up by key, so a key it renders must resolve to
+  // text rather than to itself.
+  for (const key of ['sectionNav', 'rowSummary', 'intro', 'field.sdkPath', 'group.sdk']) {
+    assert.equal(typeof body.en[key], 'string', `en must declare ${key}`)
+    assert.ok(body.en[key].length > 0, `en ${key} must not be empty`)
+    assert.equal(typeof body.zh[key], 'string', `zh must declare ${key}`)
+    assert.ok(body.zh[key].length > 0, `zh ${key} must not be empty`)
+  }
   await fixture.dispose()
 })
 
@@ -240,6 +265,7 @@ test('the routes appear when the connection service is provided after mount', as
   await new Promise((resolve) => setTimeout(resolve, 50))
   assert.deepEqual([...fixture.routes.keys()].sort(), [
     '/api/android-emulator-helper/inventory',
+    '/api/android-emulator-helper/locale',
     '/api/android-emulator-helper/status',
   ])
   await fixture.dispose()

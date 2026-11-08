@@ -37,6 +37,20 @@ function isRecord(value) {
 }
 
 /**
+ * The dictionaries the host's locale route serves.
+ *
+ * Read from the same two files the host half reads, so a mount in this gate
+ * answers the fetch with the shipped copy.
+ *
+ * @returns {{en: Record<string, string>, zh: Record<string, string>}} the dictionaries.
+ */
+function localePayload() {
+  const read = (language) =>
+    JSON.parse(readFileSync(path.join(ROOT, 'locale', `${language}.json`), 'utf8')).settings
+  return { en: read('en'), zh: read('zh') }
+}
+
+/**
  * Read one `field: value` property of a slot registration entry.
  *
  * @param {string} body - the text between the entry's braces.
@@ -237,9 +251,29 @@ export function checkSettingsSlotLiterals(source) {
  *
  * @param {Record<string, any>} exported - the bundle's exports.
  * @param {boolean} enabled - the value the host resolves for the switch.
- * @returns {{apply: () => void, injected: string[], live: () => Array<{entry: Record<string, any>, component: unknown, disposed: boolean}>, publish: (next: boolean) => void}} the mount.
+ * @returns {{apply: () => void, restoreFetch: () => void, injected: string[], live: () => Array<{entry: Record<string, any>, component: unknown, disposed: boolean}>, publish: (next: boolean) => void}} the mount.
  */
 function mountClientHalf(exported, enabled) {
+  // `apply` starts the locale fetch, and this gate runs in Node where a
+  // document-relative URL cannot be parsed. Answer it with the shipped
+  // dictionaries so the mount exercises the real path instead of logging a
+  // failure the gate would then have to ignore.
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    if (String(url) === '/api/android-emulator-helper/locale') {
+      return new Response(JSON.stringify(localePayload()), {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      })
+    }
+    if (typeof realFetch === 'function') return realFetch(url, init)
+    throw new Error(`the gate has no answer for ${String(url)}`)
+  }
+  // Restored by the caller once the mount is done: a stub left installed would
+  // answer every later fetch in this process, including a test's own.
+  const restoreFetch = () => {
+    globalThis.fetch = realFetch
+  }
   const surface = exported?.SETTINGS_SURFACE ?? {}
   const field = typeof surface.field === 'string' && surface.field.length > 0 ? surface.field : 'showInSettings'
   const section = { [field]: enabled }
@@ -266,7 +300,12 @@ function mountClientHalf(exported, enabled) {
     },
     locale: {
       register: () => () => {},
-      bind: () => (key) => exported?.DICTIONARY?.en?.[key] ?? key,
+      // The label thunk must return a dictionary KEY, not the text it resolves
+      // to, so this binding answers the key itself and never reads the bundle's
+      // dictionary. Reading it would make the check order-dependent: the locale
+      // fetch below fills that dictionary in place, so a second mount in the
+      // same process would see text where the first saw a key.
+      bind: () => (key) => key,
     },
     slots: {
       inject: (name, callback) => {
@@ -291,6 +330,7 @@ function mountClientHalf(exported, enabled) {
   }
   return {
     apply: () => exported.apply(host),
+    restoreFetch,
     injected,
     live: () => registrations.filter((record) => !record.disposed),
     publish: (next) => {
@@ -312,9 +352,10 @@ function mountClientHalf(exported, enabled) {
  * disposed again when it is saved off, without a reload.
  *
  * @param {Record<string, any>} exported - the bundle's exports.
+ * @param {{en: Record<string, string>, zh: Record<string, string>}} [localeSettings] - the dictionaries the locale files declare.
  * @returns {string[]} failure messages; empty when the invariant holds.
  */
-export function checkSettingsSectionGated(exported) {
+export function checkSettingsSectionGated(exported, localeSettings = { en: {}, zh: {} }) {
   const problems = []
   const surface = exported?.SETTINGS_SURFACE
   if (!isRecord(surface)) {
@@ -349,6 +390,8 @@ export function checkSettingsSectionGated(exported) {
     off.apply()
   } catch (error) {
     return [...problems, `apply() must survive a host that serves the form: ${String(error?.message ?? error)}`]
+  } finally {
+    off.restoreFetch()
   }
   const offNames = off.live().map((record) => record.entry.name)
   if (offNames.length !== 1 || offNames[0] !== PLUGIN_PAGE_SLOT) {
@@ -365,6 +408,8 @@ export function checkSettingsSectionGated(exported) {
     on.apply()
   } catch (error) {
     return [...problems, `apply() must survive a host that serves the form: ${String(error?.message ?? error)}`]
+  } finally {
+    on.restoreFetch()
   }
   const byName = new Map(on.live().map((record) => [record.entry.name, record]))
   const section = byName.get(surface.section)
@@ -395,13 +440,23 @@ export function checkSettingsSectionGated(exported) {
       problems.push('the Settings section label must be a thunk so it follows the active locale')
     } else {
       const label = section.entry.label()
-      const texts = Object.values(exported.DICTIONARY?.en ?? {})
+      // The label is a dictionary key resolved through the shell's `t`. The
+      // dictionaries are fetched at run time, so at gate time the bundle's own
+      // dictionary is still empty and `t` answers the key itself — which makes
+      // the thunk's return value the key to check. Requiring that key in both
+      // locale files is what proves the label renders as text on a real page
+      // rather than as a raw key in the navigation rail.
       if (typeof label !== 'string' || label.length === 0) {
         problems.push('the Settings section label must resolve to a non-empty string')
-      } else if (!texts.includes(label)) {
-        problems.push(
-          `the Settings section label ${JSON.stringify(label)} is not an entry of the bundle's own dictionary`,
-        )
+      } else {
+        for (const lang of ['en', 'zh']) {
+          const declared = localeSettings[lang]?.[label]
+          if (typeof declared !== 'string' || declared.length === 0) {
+            problems.push(
+              `the Settings section label ${JSON.stringify(label)} is not a key locale/${lang}.json declares`,
+            )
+          }
+        }
       }
     }
     if (section.entry.locale === undefined) {
@@ -485,31 +540,78 @@ export function checkSuggestSources(fields, sources) {
 }
 
 /**
- * The two languages must declare the same dictionary keys.
+ * The two locale files must declare the same keys.
  *
- * The client holds two hand-written literals, `en` and `zh`. The group and
- * field keys are generated symmetrically, but the fixed ones are not: drop one
- * and the page renders that key as a literal string, because the locale
- * binding returns the key itself for a missing entry.
+ * `locale/en.json` and `locale/zh.json` are the single source of every string
+ * this plugin renders: the host half projects them into the field table, and
+ * the browser half fetches them through the locale route. A key present in one
+ * file and missing from the other renders as the key itself in that language,
+ * because the locale binding answers the key for a missing entry.
  *
- * @param {{en: Record<string, unknown>, zh: Record<string, unknown>}} dictionary - the dictionary.
+ * @param {{en: Record<string, unknown>, zh: Record<string, unknown>}} dictionary - the two dictionaries.
  * @returns {string[]} failure messages; empty when the invariant holds.
  */
 export function checkDictionarySymmetry(dictionary) {
   const en = dictionary?.en
   const zh = dictionary?.zh
   if (!isRecord(en) || !isRecord(zh)) {
-    return ['the client bundle must export FIXED_DICTIONARY']
+    return ['the locale files must both declare a "settings" object']
   }
   const problems = []
   for (const key of Object.keys(en)) {
     if (!(key in zh)) {
-      problems.push(`the zh dictionary does not declare ${JSON.stringify(key)}, which the en dictionary declares`)
+      problems.push(`locale/zh.json does not declare ${JSON.stringify(key)}, which locale/en.json declares`)
     }
   }
   for (const key of Object.keys(zh)) {
     if (!(key in en)) {
-      problems.push(`the en dictionary does not declare ${JSON.stringify(key)}, which the zh dictionary declares`)
+      problems.push(`locale/en.json does not declare ${JSON.stringify(key)}, which locale/zh.json declares`)
+    }
+  }
+  return problems
+}
+
+/**
+ * Every string the page can render must exist in both locale files.
+ *
+ * The field table names its copy by key rather than carrying it, so a key the
+ * locale files do not declare is not a compile error anywhere — it is a raw key
+ * on the page. This walks the same keys the page looks up: the fixed page
+ * chrome, every group heading and hint, every field label and hint, every
+ * placeholder, and every declared option label.
+ *
+ * @param {Array<{id: string, fields: Array<{key: string, placeholder?: boolean, optionLabel?: string[]}>}>} groups - the client's group table.
+ * @param {string[]} fixedKeys - the page-chrome keys the bundle declares.
+ * @param {{en: Record<string, string>, zh: Record<string, string>}} dictionary - the two dictionaries.
+ * @returns {string[]} failure messages; empty when the invariant holds.
+ */
+export function checkDictionaryCoverage(groups, fixedKeys, dictionary) {
+  const en = dictionary?.en
+  const zh = dictionary?.zh
+  if (!isRecord(en) || !isRecord(zh)) {
+    return ['the locale files must both declare a "settings" object']
+  }
+  const problems = []
+  /** Require one key in both languages, with a non-empty string in each. */
+  const require = (key, what) => {
+    for (const lang of ['en', 'zh']) {
+      const value = dictionary[lang][key]
+      if (typeof value !== 'string' || value.length === 0) {
+        problems.push(`${what}: locale/${lang}.json declares no ${JSON.stringify(key)}`)
+      }
+    }
+  }
+  for (const key of fixedKeys ?? []) require(key, 'the page chrome')
+  for (const group of groups ?? []) {
+    require(`group.${group.id}`, `group "${group.id}"`)
+    require(`group.${group.id}.hint`, `group "${group.id}"`)
+    for (const field of group.fields ?? []) {
+      require(`field.${field.key}`, `field "${field.key}"`)
+      require(`field.${field.key}.hint`, `field "${field.key}"`)
+      if (field.placeholder === true) require(`field.${field.key}.placeholder`, `field "${field.key}"`)
+      for (const value of field.optionLabel ?? []) {
+        require(`field.${field.key}.option.${optionKey(value)}`, `field "${field.key}" option ${JSON.stringify(value)}`)
+      }
     }
   }
   return problems
@@ -518,27 +620,26 @@ export function checkDictionarySymmetry(dictionary) {
 /**
  * Every declared option label must exist as a dictionary entry in both languages.
  *
- * A field's `optionLabel` map gives a readable name to an option value. The
- * client generates one dictionary entry per declared label and looks the entry
- * up by key, so a label without a generated entry is a silent no-op: the select
- * falls back to the raw option value.
+ * A field's `optionLabel` list names the option values that carry a readable
+ * name. The page looks the entry up by key, so a label without an entry is a
+ * silent no-op: the select falls back to the raw option value.
  *
- * @param {Array<{key: string, optionLabel?: Record<string, {en: string, zh: string}>}>} fields - field descriptors.
- * @param {{en: Record<string, string>, zh: Record<string, string>}} dictionary - the dictionary the page renders from.
+ * @param {Array<{key: string, optionLabel?: string[]}>} fields - field descriptors.
+ * @param {{en: Record<string, string>, zh: Record<string, string>}} dictionary - the dictionaries the page renders from.
  * @returns {string[]} failure messages; empty when the invariant holds.
  */
 export function checkOptionLabels(fields, dictionary) {
   const en = dictionary?.en
   const zh = dictionary?.zh
   if (!isRecord(en) || !isRecord(zh)) {
-    return ['the client bundle must export DICTIONARY']
+    return ['the locale files must both declare a "settings" object']
   }
   const problems = []
   for (const field of fields ?? []) {
     const labels = field.optionLabel
     if (labels === undefined || labels === null) continue
-    if (!isRecord(labels)) {
-      problems.push(`field "${field.key}": optionLabel must be a map of option values to {en, zh} labels`)
+    if (!Array.isArray(labels)) {
+      problems.push(`field "${field.key}": optionLabel must be a list of the option values that carry a label`)
       continue
     }
     // The page does not look a label up by its text: `optionLabel()` builds
@@ -548,21 +649,13 @@ export function checkOptionLabels(fields, dictionary) {
     // existed under a different key and the page rendered the raw value) and it
     // reported a false positive when two options shared EN text but differed in
     // ZH.
-    for (const [value, label] of Object.entries(labels)) {
+    for (const value of labels) {
       const key = `field.${field.key}.option.${optionKey(value)}`
       for (const lang of ['en', 'zh']) {
-        const text = label?.[lang]
+        const text = dictionary[lang][key]
         if (typeof text !== 'string' || text.length === 0) {
-          problems.push(`field "${field.key}": the option ${JSON.stringify(value)} declares no ${lang} label`)
-          continue
-        }
-        if (dictionary[lang][key] === undefined) {
           problems.push(
-            `field "${field.key}": the option ${JSON.stringify(value)} has no ${lang} dictionary entry under ${JSON.stringify(key)} (expected ${JSON.stringify(text)})`,
-          )
-        } else if (dictionary[lang][key] !== text) {
-          problems.push(
-            `field "${field.key}": the ${lang} entry ${JSON.stringify(key)} reads ${JSON.stringify(dictionary[lang][key])} but the field declares ${JSON.stringify(text)}`,
+            `field "${field.key}": the option ${JSON.stringify(value)} has no ${lang} dictionary entry under ${JSON.stringify(key)}`,
           )
         }
       }
@@ -618,6 +711,50 @@ export function checkOptionLabelLookup(source) {
 }
 
 /**
+ * The bundle must carry no copy of its own.
+ *
+ * This is the invariant the whole arrangement exists for. Every string the page
+ * renders lives in `locale/en.json` and `locale/zh.json`; the bundle looks each
+ * one up by key. A string written into `lib/client.js` is a second source, and
+ * the two drift the moment one is edited — which is exactly what this
+ * repository used to do, with the same table spelled twice and a gate comparing
+ * the copies word for word.
+ *
+ * Two shapes are refused, because both are how copy creeps back in:
+ *
+ *   - a `{zh: …, en: …}` literal, which is the old inline dictionary shape;
+ *   - a non-ASCII character in a string literal, which is what a Chinese label
+ *     pasted into the bundle looks like. Comments are exempt: this file's own
+ *     prose quotes the Chinese button names, and a comment renders nothing.
+ *
+ * @param {string} source - `lib/client.js`.
+ * @returns {string[]} failure messages; empty when the invariant holds.
+ */
+export function checkNoInlineCopy(source) {
+  const text = String(source ?? '')
+  const problems = []
+  // Strip comments before looking for copy: a comment is not rendered, and the
+  // bundle's own prose names the Chinese labels it used to carry.
+  const code = text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+  if (/\bzh\s*:\s*["'`]/.test(code)) {
+    problems.push(
+      'lib/client.js must not carry inline copy: a `{zh: …, en: …}` literal belongs in locale/en.json and locale/zh.json',
+    )
+  }
+  // A CJK character inside a string literal is copy that escaped the locale
+  // files. The bundle's identifiers and keys are ASCII, so any hit is a string.
+  const cjk = /["'`][^"'`\n]*[\u4e00-\u9fff][^"'`\n]*["'`]/.exec(code)
+  if (cjk !== null) {
+    problems.push(
+      `lib/client.js must not carry inline copy: found ${JSON.stringify(cjk[0].slice(0, 60))} — it belongs in locale/en.json and locale/zh.json`,
+    )
+  }
+  return problems
+}
+
+/**
  * Run every invariant and report the ones that failed.
  *
  * Split out of the module body so that importing this file — as the test suite
@@ -635,6 +772,12 @@ function main() {
     return
   }
   const { registration, exported, required } = bundle
+
+  const localeFiles = {}
+  for (const name of ['en', 'zh']) {
+    localeFiles[name] = JSON.parse(readFileSync(path.join(ROOT, 'locale', `${name}.json`), 'utf8'))
+  }
+  const localeSettings = { en: localeFiles.en.settings, zh: localeFiles.zh.settings }
 
   // --- bundle identity -----------------------------------------------------
   const manifest = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
@@ -692,7 +835,7 @@ function main() {
   // behaviourally as well: it must not exist while its switch is off.
   failures.push(...checkRegistrationUsesSurface(clientSource))
   failures.push(...checkSettingsSlotLiterals(clientSource))
-  failures.push(...checkSettingsSectionGated(exported))
+  failures.push(...checkSettingsSectionGated(exported, localeSettings))
 
   // --- field table agreement -------------------------------------------------
   const clientFields = exported.FIELD_META ?? []
@@ -720,6 +863,17 @@ function main() {
         fail(`field "${field.key}": host options [${hostOptions}] != client options [${clientOptions}]`)
       }
     }
+    // The host says what the placeholder reads; the client says whether the
+    // control shows one. A field that lost `placeholder: true` on one side
+    // renders no hint at all, and the locale coverage check cannot see it: it
+    // only requires the key when the client still claims the placeholder.
+    const hostHasPlaceholder = host.placeholder !== undefined
+    const clientHasPlaceholder = field.placeholder === true
+    if (hostHasPlaceholder !== clientHasPlaceholder) {
+      fail(
+        `field "${field.key}": host ${hostHasPlaceholder ? 'declares a placeholder' : 'declares no placeholder'} but the client ${clientHasPlaceholder ? 'shows one' : 'shows none'}`,
+      )
+    }
   }
 
   // --- field kinds the halves actually handle --------------------------------
@@ -745,24 +899,46 @@ function main() {
   failures.push(...checkSuggestSources(clientFields, sources))
 
   // --- dictionaries ----------------------------------------------------------
-  // The two hand-written literals must declare the same keys, or the page
-  // renders the missing one as a literal string.
-  failures.push(...checkDictionarySymmetry(exported.FIXED_DICTIONARY))
+  // `locale/en.json` and `locale/zh.json` are the single source of every string
+  // this plugin renders. The host half projects them into the field table and
+  // the browser half fetches them through the locale route, so the two halves
+  // cannot disagree — but a key missing from one file still renders as itself,
+  // and a key the page looks up but neither file declares is a raw key on the
+  // page. Both are checked here.
+  const clientGroups = exported.GROUP_META ?? []
+  const clientFieldsByKey = new Map((exported.FIELD_META ?? []).map((field) => [field.key, field]))
+  failures.push(...checkDictionarySymmetry(localeSettings))
+  // Every key the page can look up must exist in both files: the fixed chrome,
+  // every group heading and hint, every field label and hint, every placeholder
+  // and every declared option label. The walk uses the client's own field
+  // descriptors, because those are what the page renders from.
+  failures.push(
+    ...checkDictionaryCoverage(
+      clientGroups.map((group) => ({
+        id: group.id,
+        fields: group.fields.map((key) => clientFieldsByKey.get(key) ?? { key }),
+      })),
+      exported.FIXED_KEYS ?? [],
+      localeSettings,
+    ),
+  )
   // Every label a field declares must exist as an entry in both languages, or
   // the select falls back to the raw option value without saying so.
-  failures.push(...checkOptionLabels(clientFields, exported.DICTIONARY))
+  failures.push(...checkOptionLabels(clientFields, localeSettings))
   failures.push(...checkOptionLabelLookup(clientSource))
+  // The bundle must carry no copy of its own. This is the invariant the whole
+  // arrangement exists for: a string written into `lib/client.js` is a second
+  // source, and the two drift the moment one is edited.
+  failures.push(...checkNoInlineCopy(clientSource))
 
   // --- group agreement -------------------------------------------------------
   // The page draws one card per group and reads its heading from `group.<id>`.
   // The two tables are written twice, so they have to agree key by key, in order.
-  const clientGroups = exported.GROUP_META ?? []
   const hostGroupIds = FIELD_GROUPS.map((group) => group.id)
   const clientGroupIds = clientGroups.map((group) => group.id)
   if (hostGroupIds.join(',') !== clientGroupIds.join(',')) {
     fail(`group order differs:\n  host:   ${hostGroupIds.join(', ')}\n  client: ${clientGroupIds.join(', ')}`)
   }
-  const clientFieldsByKey = new Map((exported.FIELD_META ?? []).map((field) => [field.key, field]))
   for (const group of clientGroups) {
     const hostGroup = FIELD_GROUPS.find((item) => item.id === group.id)
     if (hostGroup === undefined) {
@@ -775,43 +951,39 @@ function main() {
     }
   }
 
-  // --- user-visible text agreement -------------------------------------------
-  // Every heading, hint and label the page can render is written twice. Comparing
-  // only the keys would let a reworded or mistranslated label ship: the form
-  // would still render, just with text that no longer matches the host. Compare
-  // the text itself, in both languages.
-  /** Compare two `{en, zh}` text objects, reporting every difference. */
-  function compareText(what, hostText, clientText) {
-    for (const lang of ['en', 'zh']) {
-      const host = hostText?.[lang]
-      const client = clientText?.[lang]
-      if (typeof host !== 'string' || host.length === 0) fail(`${what}: the host declares no ${lang} text`)
-      else if (host !== client) {
-        fail(`${what}: ${lang} text differs\n  host:   ${host}\n  client: ${client === undefined ? '(missing)' : client}`)
-      }
-    }
-  }
+  // --- the locale files are the only source of copy --------------------------
+  // The two halves used to carry the same strings twice, and this gate compared
+  // them word for word. They no longer carry any: the host projects the locale
+  // files into its field table and the browser fetches them through the locale
+  // route, so there is nothing left to compare — what is left to check is that
+  // the projection is faithful and that the files still describe the package.
+  //
+  // The host's field table must read exactly what the locale files declare. A
+  // projection that silently fell back to a key, or to the wrong language,
+  // would render a page that looks translated and is not.
   for (const group of FIELD_GROUPS) {
-    const client = clientGroups.find((item) => item.id === group.id)
-    if (client === undefined) continue
-    compareText(`group "${group.id}" title`, group.title, client.title)
-    compareText(`group "${group.id}" hint`, group.hint, client.hint)
+    const expect = (what, actual, key) => {
+      for (const lang of ['en', 'zh']) {
+        const declared = localeSettings[lang]?.[key]
+        if (typeof declared !== 'string' || declared.length === 0) {
+          fail(`${what}: locale/${lang}.json declares no ${JSON.stringify(key)}`)
+        } else if (actual?.[lang] !== declared) {
+          fail(`${what}: the host projects ${JSON.stringify(actual?.[lang])} for ${lang} but locale/${lang}.json declares ${JSON.stringify(declared)}`)
+        }
+      }
+    }
+    expect(`group "${group.id}" title`, group.title, `group.${group.id}`)
+    expect(`group "${group.id}" hint`, group.hint, `group.${group.id}.hint`)
     for (const field of group.fields) {
-      const clientField = clientFieldsByKey.get(field.key)
-      if (clientField === undefined) continue
-      compareText(`field "${field.key}" label`, field.label, clientField.label)
-      compareText(`field "${field.key}" hint`, field.hint, clientField.hint)
-      if ((field.placeholder ?? '') !== (clientField.placeholder ?? '')) {
-        fail(`field "${field.key}": placeholder differs\n  host:   ${field.placeholder ?? '(none)'}\n  client: ${clientField.placeholder ?? '(none)'}`)
+      expect(`field "${field.key}" label`, field.label, `field.${field.key}`)
+      expect(`field "${field.key}" hint`, field.hint, `field.${field.key}.hint`)
+      if (field.placeholder !== undefined) {
+        expect(`field "${field.key}" placeholder`, field.placeholder, `field.${field.key}.placeholder`)
       }
     }
   }
-  // `locale/*.json` carries the package metadata the plugin list reads, so both
-  // languages must describe the same package with the same keys.
-  const localeFiles = {}
-  for (const name of ['en', 'zh']) {
-    localeFiles[name] = JSON.parse(readFileSync(path.join(ROOT, 'locale', `${name}.json`), 'utf8'))
-  }
+  // `locale/*.json` also carries the package metadata the plugin list reads, so
+  // both languages must describe the same package with the same keys.
   for (const key of new Set([...Object.keys(localeFiles.en), ...Object.keys(localeFiles.zh)])) {
     if (!(key in localeFiles.en)) fail(`locale/zh.json declares "${key}" but locale/en.json does not`)
     if (!(key in localeFiles.zh)) fail(`locale/en.json declares "${key}" but locale/zh.json does not`)
@@ -830,7 +1002,7 @@ function main() {
   // compare a second copy; that copy is gone with the Settings section.
 
   // --- route agreement -------------------------------------------------------
-  // The host owns the prefix and the two routes; the client calls them by
+  // The host owns the prefix and the three routes; the client calls them by
   // absolute path. Both sides export the paths now — the host's `ROUTES` and
   // the browser half's `ROUTES` — so the gate compares two values instead of
   // grepping two source files for the same literal.
@@ -843,7 +1015,7 @@ function main() {
     fail('the client bundle must export ROUTES')
   }
   if (hostRoutes !== undefined && clientRoutes !== undefined) {
-    for (const name of ['status', 'inventory']) {
+    for (const name of ['status', 'inventory', 'locale']) {
       const route = hostRoutes[name]
       if (route === undefined) {
         fail(`lib/index.js must export the ${name} route in ROUTES`)
@@ -866,7 +1038,7 @@ function main() {
   }
 
   report(
-    `check-bundle: OK — bundle id, namespace, plugin surface, ${clientFields.length} fields, ${kinds?.length ?? 0} field kinds, ${sources?.length ?? 0} suggestion sources, both dictionaries, 2 routes, the opt-in Settings entry and script hygiene all agree.`,
+    `check-bundle: OK — bundle id, namespace, plugin surface, ${clientFields.length} fields, ${kinds?.length ?? 0} field kinds, ${sources?.length ?? 0} suggestion sources, the locale files, 3 routes, the opt-in Settings entry and script hygiene all agree.`,
   )
 }
 

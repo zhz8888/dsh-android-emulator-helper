@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import * as gate from '../scripts/check-bundle.mjs'
-import { loadBundle } from './helpers/load-bundle.mjs'
+import { ROOT, loadBundle } from './helpers/load-bundle.mjs'
 import { SETTINGS_NAMESPACE } from '../lib/settings.js'
 
 /** The repository under test, so a copy can be laid out the way the gate reads it. */
@@ -158,7 +158,7 @@ test('a dictionary missing from one side entirely is reported', () => {
 /** A select whose empty option carries a translated label. */
 const ABI_FIELD = field('systemImageAbi', 'select', {
   options: ['', 'arm64-v8a'],
-  optionLabel: { '': { en: 'Automatic (from the host)', zh: '自动（按宿主架构）' } },
+  optionLabel: [''],
 })
 
 test('an option label present in both languages is reported by no check', () => {
@@ -176,7 +176,9 @@ test('an option label missing from the page dictionary is reported', () => {
   assert.ok(failures.length > 0, 'an option label with no dictionary entry must be reported')
   const message = failures.join('\n')
   assert.match(message, /systemImageAbi/, 'the message must name the offending field')
-  assert.match(message, /Automatic \(from the host\)/, 'the message must name the label that is missing')
+  // The label text lives in the locale files now, so the gate reports the key
+  // the page looks up rather than the text it expected to find there.
+  assert.match(message, /option\.empty/, 'the message must name the key that is missing')
 })
 
 test('an option label translated in one language only is reported', () => {
@@ -199,12 +201,14 @@ test('an option label filed under different keys in the two languages is reporte
   assert.match(failures.join('\n'), /systemImageAbi/, 'the message must name the offending field')
 })
 
-test('an option label that declares no text in one language is reported', () => {
-  const failures = gate.checkOptionLabels(
-    [field('systemImageAbi', 'select', { optionLabel: { '': { en: '', zh: '自动（按宿主架构）' } } })],
-    { en: {}, zh: {} },
-  )
-  assert.ok(failures.length > 0, 'an option label without text in one language must be reported')
+test('an option label whose entry is empty is reported', () => {
+  // An empty string is as unusable as a missing entry: the select would render
+  // a blank option, so the gate treats it the same way.
+  const failures = gate.checkOptionLabels([ABI_FIELD], {
+    en: { 'field.systemImageAbi.option.empty': '' },
+    zh: { 'field.systemImageAbi.option.empty': '自动（按宿主架构）' },
+  })
+  assert.ok(failures.length > 0, 'an empty option label must be reported')
   assert.match(failures.join('\n'), /systemImageAbi/, 'the message must name the offending field')
 })
 
@@ -285,11 +289,24 @@ test('G-3: an icon id that does not come from the surface is reported', () => {
 /** The shipped bundle, evaluated the way the shell evaluates it. */
 const CLIENT_BUNDLE = loadBundle().exported
 
+/**
+ * The dictionaries the locale files declare.
+ *
+ * The Settings label is a dictionary key, so the check needs the files to prove
+ * the key resolves to text. Read from the same two files the host half reads.
+ */
+const LOCALE_SETTINGS = Object.fromEntries(
+  ['en', 'zh'].map((language) => [
+    language,
+    JSON.parse(readFileSync(path.join(ROOT, 'locale', `${language}.json`), 'utf8')).settings,
+  ]),
+)
+
 test('G-3: the shipped client gates the Settings entry on its switch', () => {
   // The structural checks cannot prove the opt-in exists: this mounts the real
   // apply() over a host that serves the form with the switch off, on and off
   // again.
-  assert.deepEqual(gate.checkSettingsSectionGated(CLIENT_BUNDLE), [])
+  assert.deepEqual(gate.checkSettingsSectionGated(CLIENT_BUNDLE, LOCALE_SETTINGS), [])
 })
 
 test('G-3: a client that registers nothing at all is reported', () => {
@@ -345,25 +362,25 @@ test('G-4: the shipped lookup goes through optionKey()', () => {
 })
 
 test('G-4: two options sharing English text but differing in Chinese are accepted', () => {
-  // The value-based matching this replaced rejected this legitimate table.
-  const shared = field('systemImageVariant', 'select', {
-    optionLabel: {
-      google: { en: 'Google APIs', zh: 'Google APIs' },
-      aosp: { en: 'Google APIs', zh: 'AOSP 原生' },
+  // The value-based matching this replaced rejected this legitimate table: two
+  // options may read the same in English and differ in Chinese, and the gate
+  // must judge them by key rather than by text.
+  const shared = field('systemImageVariant', 'select', { optionLabel: ['google', 'aosp'] })
+  const dictionary = {
+    en: {
+      'field.systemImageVariant.option.v.google': 'Google APIs',
+      'field.systemImageVariant.option.v.aosp': 'Google APIs',
     },
-  })
-  const dictionary = { en: {}, zh: {} }
-  for (const [value, label] of Object.entries(shared.optionLabel)) {
-    dictionary.en[`field.systemImageVariant.option.${gate.optionKey(value)}`] = label.en
-    dictionary.zh[`field.systemImageVariant.option.${gate.optionKey(value)}`] = label.zh
+    zh: {
+      'field.systemImageVariant.option.v.google': 'Google APIs',
+      'field.systemImageVariant.option.v.aosp': 'AOSP 原生',
+    },
   }
   assert.deepEqual(gate.checkOptionLabels([shared], dictionary), [])
 })
 
 test('G-4: an option filed under the wrong key is reported', () => {
-  const shared = field('systemImageVariant', 'select', {
-    optionLabel: { aosp: { en: 'AOSP', zh: 'AOSP 原生' } },
-  })
+  const shared = field('systemImageVariant', 'select', { optionLabel: ['aosp'] })
   const failures = gate.checkOptionLabels([shared], {
     en: { 'field.systemImageVariant.option.aosp': 'AOSP' },
     zh: { 'field.systemImageVariant.option.aosp': 'AOSP 原生' },
@@ -394,8 +411,10 @@ const GATE_CHECK_NAMES = [
   'checkKindsAreRendered',
   'checkSuggestSources',
   'checkDictionarySymmetry',
+  'checkDictionaryCoverage',
   'checkOptionLabels',
   'checkOptionLabelLookup',
+  'checkNoInlineCopy',
 ]
 
 test('main() calls every check the gate declares', () => {

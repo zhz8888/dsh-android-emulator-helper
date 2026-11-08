@@ -120,10 +120,11 @@ The settings namespace equals the profile patch row id equals `android-emulator-
 
 That last card decides where the page lives. With **Show in Settings** off, the default, the form renders only on the row's own page. Turn the switch on and save, and the bundle also registers a `settings.section` entry, id `android-emulator-helper` and order 100, plus the `settings.section.icon` contribution that draws its icon, so the same form, bound to the same settings namespace, also appears in the **Settings** dialog's navigation under **Android emulator**. The icon is the supplied Android glyph, shipped as its own file and referenced through the package's `./assets/*` export, drawn as a mask over `currentColor` so it follows the navigation item's colour at 16 px — the active state is the same artwork in the rail's active colour. Both registrations follow the saved value live, so turning the switch off removes the section again without a reload.
 
-Two buttons back the page with exact Fetch routes on the host half:
+Three exact Fetch routes back the page on the host half:
 
 - **Run diagnostic** → `GET /api/android-emulator-helper/status`, the same checks as `android_preflight`, each with its detail and fix hint.
 - **Refresh devices and AVDs** → `GET /api/android-emulator-helper/inventory`, detecting the SDK root, the AVDs stored in the AVD directory (`ANDROID_AVD_HOME`, else `$ANDROID_USER_HOME/avd`, else `~/.android/avd`, merged with the names `emulator -list-avds` adds), connected devices, installed JDKs, system images, platforms and build-tools to populate the fields' suggestions. A record whose payload directory is gone is dropped from both sources. The scan is what lets the default-AVD dropdown list the machine's AVDs even when the emulator cannot be run.
+- `GET /api/android-emulator-helper/locale` → the page's own copy, in both languages. Every label, hint and placeholder lives in `locale/en.json` and `locale/zh.json`; the host half reads those two files and serves them here, and the browser half looks each string up by key. A client bundle cannot read a file of its own package, so a route is how the copy crosses into the browser — which is why the page carries no strings of its own and the two languages cannot drift apart.
 
 ### Legacy configuration
 
@@ -250,7 +251,7 @@ The direct spawn is a deliberate trade-off: `gradlew`, `adb` and `emulator` beha
 - `android_create_avd` always answers `no` to `avdmanager`'s confirmation, so it can never silently trigger a multi-gigabyte image download; install the image with `sdkmanager` first.
 - UI automation depends on the device-side `uiautomator`. When it is unavailable `android_ui_status` reports that, and the build, run and screenshot paths are unaffected.
 - The configuration page's installed-image list comes from scanning the SDK directory, not from `sdkmanager --list_installed`, which fails in restricted environments and prefixes its output with deprecation notices.
-- The configuration page's two routes are served by the plugin and are mounted in a real profile, but their HTTP responses cannot be exercised outside the GUI: the desktop app authenticates every request, so a bare `curl` to `/api/android-emulator-helper/status` answers `403 forbidden` before the handler runs. The page's spacing, dark theme and narrow-width wrapping still deserve a human look in the GUI.
+- The configuration page's three routes are served by the plugin and are mounted in a real profile, but their HTTP responses cannot be exercised outside the GUI: the desktop app authenticates every request, so a bare `curl` to `/api/android-emulator-helper/status` answers `403 forbidden` before the handler runs. The page's spacing, dark theme and narrow-width wrapping still deserve a human look in the GUI.
 - No credential handling: the plugin never reads or forwards key/token/secret environment variables.
 
 ## Releases
