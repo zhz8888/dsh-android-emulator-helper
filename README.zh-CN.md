@@ -12,7 +12,7 @@
 - 6 组 18 个设置项，全部实时生效；原插件暴露的 7 个字段仍会回落到同名 `ANDROID_PLUGIN_*` 变量，再回落到内置默认值。
 - 参数页从插件那一行的 **配置** 入口打开，因此 bundle 详情页保留自己的描述、行列表与来源；页面最后一组里的 **在「设置」中显示** 开关会把同一张表单也加进 **设置** 对话框的导航，图标是一枚 Android 描线头像。该开关默认关闭，因此全新 profile 只有一个配置页。
 - 默认 AVD 从下拉框里选，列出本机仍有 payload 的 AVD：AVD 探测既扫描 AVD 目录（`ANDROID_AVD_HOME`，否则 `$ANDROID_USER_HOME/avd`，否则 `~/.android/avd`），也询问 `emulator -list-avds`，因此即使 emulator 无法启动，列表依然可用。
-- `android_preflight` 与参数页的 **检测环境** 按钮跑同一套检查——SDK、`adb`、`emulator`、AVD、JDK、Gradle——并逐条给出修复建议。
+- `android_preflight` 与参数页的 **检测环境** 按钮跑同一套检查——宿主操作系统、SDK 根目录与 SDK 自带的工具（`adb`、`emulator`、`sdkmanager`、`avdmanager`）、JDK、Gradle、模拟器加速、AVD 与已连接设备——并逐条给出修复建议。
 - 包名为 `@zhz8888/dsh-android-emulator-helper`；插件页显示的是 `locale/` 里的本地化名称 **Android Emulator Helper** / **Android 模拟器助手**，而不是原始包名，两条描述都写明本插件非官方、与 Google 无隶属关系。
 
 ## 快速上手
@@ -163,7 +163,7 @@ host 半侧用两个精确 Fetch 路由支撑页面上的按钮：
 
 | 工具 | 作用 |
 |---|---|
-| `android_preflight` | 检查 SDK、`adb`、`emulator`、AVD、Java、Gradle 工程状态与 UI 自动化后端，并回显当前设置。 |
+| `android_preflight` | 检查宿主操作系统、SDK 及其自带工具（`adb`、`emulator`、`sdkmanager`、`avdmanager`）、JDK、Gradle、模拟器加速、AVD 与已连接设备，并回显当前设置。 |
 | `android_discover_project` | 发现 Gradle 根、模块、variant、applicationId、manifest 与 APK 产物。 |
 | `android_create_app` | 生成最小 Kotlin + Jetpack Compose 工程。 |
 | `android_build_app` | 用 Gradle 构建指定模块与 variant。 |

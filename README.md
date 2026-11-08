@@ -12,7 +12,7 @@ A DeepSeek Harness (DSH) native port of the official ZCode `android-emulator@0.1
 - 18 settings fields in 6 groups, all live-editable; the seven fields the original exposed still fall back to their `ANDROID_PLUGIN_*` variable, then to the built-in default.
 - The page opens from the plugin row's **Configure** control, so the bundle's detail page keeps its description, its rows and its source; the **Show in Settings** switch in the page's last card also adds the same form to the **Settings** dialog's navigation, drawn with a line-art Android head as its icon. It is off by default, so a fresh profile keeps one configuration page.
 - The default AVD is picked from a dropdown of the AVDs on this machine that still have their payload: AVD discovery scans the AVD directory (`ANDROID_AVD_HOME`, then `$ANDROID_USER_HOME/avd`, then `~/.android/avd`) as well as asking `emulator -list-avds`, so the list survives a host where the emulator cannot be started.
-- `android_preflight` and the parameter page's **Run diagnostic** button run the same checks — SDK, `adb`, `emulator`, AVDs, JDK, Gradle — and print a fix for each failure.
+- `android_preflight` and the parameter page's **Run diagnostic** button run the same checks — the host OS, the SDK root and the SDK's own tools (`adb`, `emulator`, `sdkmanager`, `avdmanager`), the JDK, Gradle, emulator acceleration, the AVDs and the attached devices — and print a fix for each failure.
 - Published as `@zhz8888/dsh-android-emulator-helper`; the plugin page shows **Android Emulator Helper** / **Android 模拟器助手** from `locale/` rather than the raw package name, and both descriptions say the plugin is unofficial and not affiliated with Google.
 
 ## Quick start
@@ -191,7 +191,7 @@ the repository, which is how a plugin market finds them.
 
 | Tool | Purpose |
 |---|---|
-| `android_preflight` | Check the SDK, `adb`, `emulator`, AVDs, Java, the Gradle project state and the UI backend, and echo the current settings. |
+| `android_preflight` | Check the host OS, the SDK and its tools (`adb`, `emulator`, `sdkmanager`, `avdmanager`), the JDK, Gradle, emulator acceleration, the AVDs and the attached devices, and echo the current settings. |
 | `android_discover_project` | Find Gradle roots, modules, variants, application ids, manifests and APK outputs. |
 | `android_create_app` | Generate a minimal Kotlin + Jetpack Compose project. |
 | `android_build_app` | Build one module and variant with Gradle. |
