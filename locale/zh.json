@@ -50,7 +50,7 @@
     "group.emulator": "模拟器与设备",
     "group.emulator.hint": "选择默认 AVD、如何启动模拟器，以及传给 emulator 的命令行参数。",
     "field.defaultAvd": "默认 AVD",
-    "field.defaultAvd.hint": "下拉项列出本机所有 AVD；需要启动模拟器时优先使用，不存在时退回第一个可用 AVD。",
+    "field.defaultAvd.hint": "下拉项列出本机仍带有载荷目录的 AVD；需要启动模拟器时优先使用，不存在时退回第一个可用 AVD。",
     "field.defaultAvd.placeholder": "medium_phone",
     "field.defaultSerial": "默认设备序列号",
     "field.defaultSerial.hint": "留空时优先选择已就绪的模拟器，其次任意已就绪设备。",
@@ -93,7 +93,7 @@
     "group.interface": "界面",
     "group.interface.hint": "这个设置页在 DeepSeek Harness 里的显示方式。",
     "field.showInSettings": "在「设置」中显示",
-    "field.showInSettings.hint": "开启并保存后，本插件的设置页也会出现在「设置」对话框的导航里，并使用 Android 描线图标；关闭时只在「插件」页的插件详情里出现。",
+    "field.showInSettings.hint": "开启并保存后，本插件的设置页也会出现在「设置」对话框的导航里，并使用 Android 描线图标；关闭时只出现在「插件」页里该插件行自己的页面上——从插件行进入，而不是从 bundle 详情页进入。",
     "field.systemImageAbi.option.empty": "自动（按宿主架构）"
   }
 }

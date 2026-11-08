@@ -50,7 +50,7 @@
     "group.emulator": "Emulator and devices",
     "group.emulator.hint": "The default AVD, how the emulator starts, and the arguments it receives.",
     "field.defaultAvd": "Default AVD",
-    "field.defaultAvd.hint": "The dropdown lists every AVD on this machine; preferred when an emulator must be started, falling back to the first available AVD.",
+    "field.defaultAvd.hint": "The dropdown lists the AVDs on this machine that still have their payload; preferred when an emulator must be started, falling back to the first available AVD.",
     "field.defaultAvd.placeholder": "medium_phone",
     "field.defaultSerial": "Default device serial",
     "field.defaultSerial.hint": "Empty prefers a ready emulator, then any ready device.",
@@ -93,7 +93,7 @@
     "group.interface": "Interface",
     "group.interface.hint": "How this settings page is shown in DeepSeek Harness.",
     "field.showInSettings": "Show in Settings",
-    "field.showInSettings.hint": "When on and saved, this page also appears in the Settings dialog's navigation with a line-art Android icon; when off it appears only on the plugin's detail page in the Plugins panel.",
+    "field.showInSettings.hint": "When on and saved, this page also appears in the Settings dialog's navigation with a line-art Android icon; when off it appears only on the plugin row's own page in the Plugins panel, reached from that row rather than from the bundle's detail page.",
     "field.systemImageAbi.option.empty": "Automatic (from the host)"
   }
 }
