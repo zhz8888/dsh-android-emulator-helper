@@ -282,3 +282,32 @@ test('a JDK of the requested major is reported as an exact match', async (t) => 
   assert.equal(info.major, '17')
   assert.equal(info.exact, true)
 })
+
+test('a jdkMajor that is not a bare major still names the JDK in use', async (t) => {
+  const dir = await scratch(t)
+  const jdk = path.join(dir, 'jdk-17')
+  await mkdir(path.join(jdk, 'bin'), { recursive: true })
+  await writeFile(path.join(jdk, 'bin', process.platform === 'win32' ? 'java.exe' : 'java'), '')
+  // "17.0.2" is a full version, not a bare major. Comparing the raw string
+  // numerically compares NaN, and every comparison against NaN is false, so
+  // the JDK that IS major 17 was never recognised as the one that was asked
+  // for.
+  const rt = runtime({ env: { JAVA_HOME: jdk }, settings: { jdkMajor: '17.0.2' } })
+  const info = await javaHomeInfo(rt)
+  assert.equal(info.home, jdk)
+  assert.equal(info.major, '17')
+  assert.equal(info.exact, true)
+})
+
+test('a jdkMajor that names no major is never reported as an exact match', async (t) => {
+  const dir = await scratch(t)
+  const jdk = path.join(dir, 'jdk-21')
+  await mkdir(path.join(jdk, 'bin'), { recursive: true })
+  await writeFile(path.join(jdk, 'bin', process.platform === 'win32' ? 'java.exe' : 'java'), '')
+  // The setting names no version at all, so no JDK can be the one that was
+  // asked for. Echoing the setting back made the report claim an exact match
+  // for a JDK that had never been resolved.
+  const rt = runtime({ env: { JAVA_HOME: jdk }, settings: { jdkMajor: 'not-a-version' } })
+  const info = await javaHomeInfo(rt)
+  assert.equal(info.exact, false)
+})
