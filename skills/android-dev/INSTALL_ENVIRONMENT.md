@@ -9,24 +9,51 @@ Use this procedure only when `android_preflight` reports that the Android develo
 
 The goal is to make the environment ready with deterministic shell commands, then return to the plugin tools. There is no separate setup tool.
 
+## Requirements
+
+What the tools need, and what only some workflows need:
+
+- **Android SDK with platform-tools** — every device action. `adb` comes from
+  the SDK, and the plugin falls back to the SDK's own copy when `adb` is not on
+  `PATH`.
+- **An SDK platform and build-tools** — every build. The API level and the
+  build-tools version come from the configuration page, and a generated project
+  pins the build-tools version.
+- **A JDK 17 or newer** — every build. The `jdkMajor` setting (17 by default)
+  is a preference: the nearest installed major is used when that one is
+  missing, and the generated project's JVM target follows the JDK in use,
+  clamped to 17–21.
+- **Gradle 8.9 or newer** — building a *generated* project. A project that
+  ships its own `./gradlew` needs no global Gradle, and the generated wrapper
+  is pinned to the installed Gradle, never below 8.9 (the floor the bundled
+  Android Gradle Plugin 8.7.3 accepts).
+- **`emulator` and one AVD** — emulator workflows only. A ready USB device
+  satisfies every device tool; `avdmanager` is only needed to create an AVD.
+- **Node.js ≥ 22** — the DSH host runtime, which the harness provides. The
+  plugin itself needs DSH ≥ 0.2.2-rc.1.
+
 ## Configurable Defaults
 
 Open this plugin's page in DSH's **Plugins** panel (Plugins → Installed
-plugins → Android Emulator Helper) to edit the Android SDK path,
-default AVD, JDK major version, Android API level, build-tools version, and
-system image variant/ABI. `android_preflight` reports the effective defaults,
-and the same page has a **Run diagnostic** button that runs the whole
-diagnostic.
+plugins → Android Emulator Helper → **Configure**) to edit all 18 settings in
+their 6 groups: the Android SDK path, default AVD, JDK major version, Android
+API level, build-tools version, system image variant/ABI and the rest.
+`android_preflight` reports the effective defaults, and the same page has a
+**Run diagnostic** button that runs the whole diagnostic.
 
-The values below are read by the shell and PowerShell 7 commands in this file. They
-still fall back to the historical `ANDROID_PLUGIN_*` environment variables, so an
-existing ZCode or CI setup keeps working without editing the configuration page.
+The commands in this file read the environment variables below, and the plugin
+reads those same seven variables as a fallback for the fields that have one, so
+an existing ZCode or CI setup keeps working without editing the configuration
+page. The resolution order is always: configuration page → environment variable
+→ declared default.
 
 Use those configured values instead of inventing versions. The documented fallback defaults are:
 
+- `ANDROID_PLUGIN_SDK_PATH=` for auto-detection
 - `ANDROID_PLUGIN_JDK_MAJOR=17`
-- `ANDROID_PLUGIN_API_LEVEL=35`
 - `ANDROID_PLUGIN_BUILD_TOOLS_VERSION=35.0.0`
+- `ANDROID_PLUGIN_DEFAULT_AVD=medium_phone`
+- `ANDROID_PLUGIN_API_LEVEL=35`
 - `ANDROID_PLUGIN_SYSTEM_IMAGE_VARIANT=default`
 - `ANDROID_PLUGIN_SYSTEM_IMAGE_ABI=` for host-based auto selection
 
@@ -35,7 +62,9 @@ environment overrides when you run them directly; they are not plugin user
 config and are not settings-page values:
 
 - `ANDROID_PLUGIN_DEFAULT_PROFILE=medium_phone`
-- `ANDROID_PLUGIN_WINDOWS_JDK_WINGET_PACKAGE=EclipseAdoptium.Temurin.17.JDK`
+- `ANDROID_PLUGIN_WINDOWS_JDK_WINGET_PACKAGE=EclipseAdoptium.Temurin.17.JDK` —
+  the winget package the Windows JDK step installs; it follows the configured
+  JDK major unless it is set
 
 ## Guardrails
 
@@ -44,6 +73,36 @@ config and are not settings-page values:
 - Do not pipe long installer output through `tail` only; preserve logs when useful.
 - If a command asks for a password, administrator permission, or license acceptance, stop and ask the user to complete or approve that step.
 - After each setup phase, re-run `android_preflight` and continue from the latest result.
+
+## What the Diagnostic Checks
+
+`android_preflight` — and the page's **Run diagnostic** button, which runs the
+same checks — probes the machine in this order, so fix the first failing check
+before moving on:
+
+1. `Host OS` — macOS or Windows; Linux is not supported.
+2. `Android SDK root` — the configured `sdkPath`, else `ANDROID_HOME`,
+   `ANDROID_SDK_ROOT`, the Windows registry, the project's `local.properties`,
+   then the common install paths on every drive.
+3. `Android plugin defaults` — always passes; it echoes the effective settings
+   (API level, build-tools, system image, JDK major, default AVD, auto-start).
+4. `adb`, `emulator`, `sdkmanager`, `avdmanager` — each is looked up in the
+   resolved SDK root first and on `PATH` second, then run (`adb version`,
+   `emulator -version`, `sdkmanager --version`, `avdmanager list avd`).
+5. `Java` — the JDK the plugin would use. The requested major is a preference,
+   so a machine with only a newer or an older JDK still reports what it found.
+6. `Gradle` — the project's wrapper, or `gradle` on `PATH`.
+7. `Emulator acceleration` — Windows only, and only when the emulator binary
+   was found (`emulator -accel-check`).
+8. `Android Virtual Devices` — the AVD directory first, then
+   `emulator -list-avds`.
+9. `ADB devices` — the connected devices and emulators.
+
+The emulator-only checks — `emulator`, `avdmanager`, `Android Virtual Devices`
+and `Emulator acceleration` — do not fail the verdict while a ready USB device
+is attached. `ADB devices` does not fail it either while the plugin could still
+start an emulator itself: auto-start on, and the emulator, AVD and acceleration
+checks passing.
 
 ## Quick Fix: Gradle Not Found
 
@@ -63,7 +122,7 @@ winget install --id Gradle.Gradle --exact --source winget --accept-source-agreem
 gradle -v
 ```
 
-If a project already has `gradlew` or `gradlew.bat`, global Gradle is not required for that project. Generated projects initially need global Gradle so `android_build_app` can create the wrapper.
+If a project already has `gradlew` or `gradlew.bat`, global Gradle is not required for that project. Generated projects initially need global Gradle so `android_build_app` can create the wrapper. The generated wrapper is pinned to the installed Gradle's version, never below 8.9 — the floor the bundled Android Gradle Plugin 8.7.3 accepts.
 
 ## macOS
 
@@ -86,6 +145,8 @@ echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 ### Install JDK
 
 Prefer the Homebrew formula. It is more reliable for headless setup than the JDK cask, and the plugin can inject its `JAVA_HOME` into child processes.
+
+The configured major is a preference, not a requirement: the plugin uses the nearest installed JDK — the requested major first, then a newer one, then an older one — so a machine that already has a JDK 21 or 24 builds without this step.
 
 Homebrew `openjdk@<major>` is keg-only. That means `java` and `/usr/libexec/java_home` may still fail until `JAVA_HOME`/`PATH` are set, or until the optional system symlink is created.
 
@@ -125,7 +186,7 @@ brew list gradle >/dev/null 2>&1 || brew install gradle
 brew list --cask android-commandlinetools >/dev/null 2>&1 || brew install --cask android-commandlinetools
 ```
 
-Use the plugin SDK path if configured; otherwise use the Homebrew cask location:
+Use the SDK root the configuration page's `sdkPath` names if it is set; otherwise use the Homebrew cask location. The plugin searches the same places — the configured path, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the project's `local.properties`, then the common install paths — and the first one that really holds an SDK wins:
 
 ```bash
 JDK_MAJOR="${ANDROID_PLUGIN_JDK_MAJOR:-17}"
@@ -179,7 +240,9 @@ sdkmanager --sdk_root="$ANDROID_HOME" --licenses
 ### Create AVD
 
 Only create an AVD when no ready USB device is available and the user needs a
-new emulator target.
+new emulator target. Install the system image first — `avdmanager` asks before
+downloading one, and the plugin's own `android_create_avd` always answers `no`
+to that question.
 
 ```bash
 AVD_NAME="${ANDROID_PLUGIN_DEFAULT_AVD:-medium_phone}"
@@ -190,6 +253,10 @@ avdmanager create avd \
   --package "$SYSTEM_IMAGE" \
   --device "$DEVICE_PROFILE"
 ```
+
+The name is the configured `defaultAvd` — the AVD `android_start_emulator` boots
+— and the device profile is a separate `avdmanager` id such as `medium_phone`
+or `pixel_7`.
 
 If the AVD already exists, do not delete it unless the user explicitly confirms.
 
@@ -217,6 +284,7 @@ $PSVersionTable.PSVersion
 where.exe java 2>$null
 where.exe gradle 2>$null
 where.exe sdkmanager 2>$null
+where.exe avdmanager 2>$null
 where.exe adb 2>$null
 where.exe emulator 2>$null
 Write-Output "ANDROID_HOME=$env:ANDROID_HOME"
@@ -226,7 +294,11 @@ Write-Output "ANDROID_SDK_ROOT=$env:ANDROID_SDK_ROOT"
 ### Install JDK, Gradle, and Android Studio
 
 ```pwsh
-$JdkPackage = if ($env:ANDROID_PLUGIN_WINDOWS_JDK_WINGET_PACKAGE) { $env:ANDROID_PLUGIN_WINDOWS_JDK_WINGET_PACKAGE } else { "EclipseAdoptium.Temurin.17.JDK" }
+# Skip the JDK line when the machine already has a JDK 17 or newer: the
+# configured major is a preference, and the plugin uses the nearest installed
+# one.
+$JdkMajor = if ($env:ANDROID_PLUGIN_JDK_MAJOR) { $env:ANDROID_PLUGIN_JDK_MAJOR } else { "17" }
+$JdkPackage = if ($env:ANDROID_PLUGIN_WINDOWS_JDK_WINGET_PACKAGE) { $env:ANDROID_PLUGIN_WINDOWS_JDK_WINGET_PACKAGE } else { "EclipseAdoptium.Temurin.$JdkMajor.JDK" }
 winget install --id "$JdkPackage" --exact --source winget --accept-source-agreements --accept-package-agreements --silent
 winget install --id Gradle.Gradle --exact --source winget --accept-source-agreements --accept-package-agreements --silent
 winget install --id Google.AndroidStudio --exact --source winget --accept-source-agreements --accept-package-agreements
@@ -240,7 +312,19 @@ build tools, and a system image. Avoid direct zip URLs here so the guide does
 not need to maintain Google command-line tools package identifiers.
 
 ```pwsh
+# Point this at the SDK root the configuration page's `sdkPath` names. With
+# nothing configured the plugin finds %LOCALAPPDATA%\Android\Sdk, then every
+# drive root's Android\Sdk — an SDK kept on another drive is found too.
 $SdkRoot = if ($env:ANDROID_PLUGIN_SDK_PATH) { $env:ANDROID_PLUGIN_SDK_PATH } else { "$env:LOCALAPPDATA\Android\Sdk" }
+if (-not (Test-Path $SdkRoot)) {
+  $SdkRoot = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+    ForEach-Object { Join-Path $_.DeviceID "Android\Sdk" } |
+    Where-Object { Test-Path (Join-Path $_ "platform-tools") } |
+    Select-Object -First 1
+}
+if (-not $SdkRoot) {
+  throw "No Android SDK found. Install Android Studio and its SDK, or set ANDROID_PLUGIN_SDK_PATH, then rerun android_preflight."
+}
 $SdkManager = Join-Path $SdkRoot "cmdline-tools\latest\bin\sdkmanager.bat"
 if (-not (Test-Path $SdkManager)) {
   throw "Install Android SDK Command-line Tools from Android Studio SDK Manager, then rerun android_preflight."
@@ -252,11 +336,29 @@ Configure the current session:
 ```pwsh
 $env:ANDROID_HOME = $SdkRoot
 $env:ANDROID_SDK_ROOT = $SdkRoot
-$JdkMajor = if ($env:ANDROID_PLUGIN_JDK_MAJOR) { $env:ANDROID_PLUGIN_JDK_MAJOR } else { "17" }
-$JavaHome = Get-ChildItem "$env:ProgramFiles\Eclipse Adoptium" -Directory -Filter "jdk-$JdkMajor*" |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1
-$env:JAVA_HOME = $JavaHome.FullName
+
+# A JDK the machine already has wins: the configured major is a preference, and
+# the plugin uses the nearest installed one. Look in JAVA_HOME, then the vendor
+# folders under Program Files, then a JDK kept on another drive.
+$JavaHome = if ($env:JAVA_HOME) { $env:JAVA_HOME } else {
+  Get-ChildItem -Path "$env:ProgramFiles\Eclipse Adoptium", "$env:ProgramFiles\Microsoft" -Directory -ErrorAction SilentlyContinue |
+    Where-Object Name -Like "jdk*" |
+    Sort-Object { [int](($_.Name -replace '^jdk-?', '') -replace '\D.*$', '') } -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+}
+if (-not $JavaHome) {
+  $JavaHome = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+    ForEach-Object { Join-Path $_.DeviceID "Java" } |
+    Where-Object { Test-Path $_ } |
+    ForEach-Object { Get-ChildItem -Path $_ -Directory -ErrorAction SilentlyContinue } |
+    Where-Object Name -Like "jdk*" |
+    Sort-Object { [int](($_.Name -replace '^jdk-?', '') -replace '\D.*$', '') } -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+}
+if (-not $JavaHome) {
+  throw "No JDK found. Install Temurin with winget (the command above), or set JAVA_HOME to a JDK 17 or newer."
+}
+$env:JAVA_HOME = $JavaHome
 $env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;$env:ANDROID_HOME\emulator;$env:ANDROID_HOME\cmdline-tools\latest\bin;$env:Path"
 ```
 
@@ -270,6 +372,7 @@ Persist user-level environment variables when the user wants future terminals to
 
 Install SDK packages:
 
+`sdkmanager` needs a JDK: the block above points `JAVA_HOME` at one.
 Default to the smaller `default` system image.
 
 ```pwsh
@@ -297,7 +400,9 @@ sdkmanager.bat --sdk_root="$env:ANDROID_HOME" --licenses
 Create an AVD:
 
 Only create an AVD when no ready USB device is available and the user needs a
-new emulator target.
+new emulator target. Install the system image first — `avdmanager` asks before
+downloading one, and the plugin's own `android_create_avd` always answers `no`
+to that question.
 
 ```pwsh
 $AvdName = if ($env:ANDROID_PLUGIN_DEFAULT_AVD) { $env:ANDROID_PLUGIN_DEFAULT_AVD } else { "medium_phone" }
@@ -368,12 +473,15 @@ Windows PowerShell 7 (`pwsh`):
 gradle wrapper --gradle-version 8.9
 ```
 
+8.9 is the floor the bundled Android Gradle Plugin 8.7.3 accepts; the wrapper
+`android_build_app` generates is pinned to the installed Gradle's version, never
+below it.
+
 ## Final Verification
 
-Re-run `android_preflight`. Continue when the host OS, SDK root, `adb`,
-`sdkmanager`, Java, Gradle, and at least one Android target path are ready. A
-ready USB device satisfies target readiness without an AVD. For emulator
-workflows, also require `emulator`, `avdmanager`, at least one AVD, and on
-Windows a passing `Emulator acceleration` check before starting the emulator. It
-is acceptable for `ADB devices` to show zero devices before an emulator is
-started.
+Re-run `android_preflight`. It is the definition of ready: the host OS, the
+SDK root, `adb`, `emulator`, `sdkmanager`, `avdmanager`, Java, Gradle, the
+AVDs and the connected devices are each probed, and every failing check prints
+its own fix. A ready USB device satisfies the target without an AVD, so the
+emulator-only checks do not block it; `ADB devices` may still show zero devices
+before an emulator is started.
