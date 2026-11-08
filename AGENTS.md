@@ -7,7 +7,8 @@ before changing anything.
 
 A DSH (DeepSeek Harness) plugin: a **host half** (`lib/index.js` and
 `lib/providers/**`) that registers 23 `android_*` tools, one embedded skill, one
-slash command and three configuration-page Fetch routes, plus a **client half**
+slash command, two configuration-page Fetch routes and the page's copy as an
+injected global, plus a **client half**
 (`lib/client.js`) that is a hand-written classic script rendering the plugin's
 parameter page on the **Plugins page**, and, while the `showInSettings` switch is
 on, the same page as a section in the **Settings** dialog. `lib/**` is committed
@@ -62,7 +63,7 @@ dsh-android-emulator-helper/
 ├── locale/en.json          # the plugin's copy in English: meta (name/description) plus the whole settings dictionary
 ├── locale/zh.json          # the Simplified Chinese mirror, key for key
 ├── lib/
-│   ├── index.js            # host half: tools, skill, command and the three Fetch routes
+│   ├── index.js            # host half: tools, skill, command, the two Fetch routes and the copy injection
 │   ├── client.js           # browser half: the hand-written __ModuleLoader__ bundle, the Plugins page plus its optional Settings section
 │   ├── i18n.js             # reads locale/*.json once; the host's only source of copy
 │   ├── settings.js         # field declarations, the schemastery Config (every field .volatile()), live reads
@@ -145,32 +146,34 @@ files are the single source:
 - the host half reads them once in `lib/i18n.js` and projects them into the
   field table by key (`text('field.sdkPath')`), so `lib/settings.js` carries no
   prose at all;
-- the browser half fetches them through the host's **locale route**
-  (`/api/android-emulator-helper/locale`) and looks each string up by key, so
-  `lib/client.js` carries no prose either.
+- the browser half reads them from the **page-initialization global** the host
+  publishes (`__DSH_ANDROID_EMULATOR_HELPER_LOCALE__`) and looks each string up
+  by key, so `lib/client.js` carries no prose either.
 
 A key missing from either file throws at import time on the host side and
 renders as the raw key on the page, which is why the gate requires every key the
 page can look up to exist in both files.
 
-The route exists because a client bundle has no other way across the realm
+The injection exists because a client bundle has no other way across the realm
 boundary: the shell's module table answers seed modules and other bundles only,
 and the package asset route admits images only (`.svg`, `.png`, `.webp`, `.jpg`,
-`.jpeg`), so a JSON file of its own package is unreachable from the bundle. A
-Fetch route is the sanctioned channel.
+`.jpeg`), so a JSON file of its own package is unreachable from the bundle.
+`webserver/index-inject` is the sanctioned channel: the host pushes a
+`kind: 'global'` row, the web server renders it as
+`<script>globalThis[NAME] = {…}</script>` in the document head, and the bundle
+reads it at module scope.
 
-Two consequences of the fetch being asynchronous are deliberate:
+The copy is **not** a Fetch route, and that is deliberate. A route is
+asynchronous by construction, so the page would draw raw keys until the answer
+landed and would need a subscription to repaint — machinery this data does not
+justify, because the dictionaries are static and known at mount time. The
+injected global is in place before the bundle runs, so the first render is
+already correct and the bundle registers its dictionaries with the shell's
+locale service once, complete.
 
-- The bundle registers its dictionaries with the shell's locale service **once,
-  empty**, and fills those same objects in place when the route answers.
-  `locale.register` throws when a namespace already has a locale, so a second
-  registration is not available — but the bound `t` resolves every key through a
-  live lookup into the registered object, so filling it in place is what makes
-  the copy appear without re-registering.
-- The page subscribes to the dictionaries (`useDictionaries`) so a fetch that
-  lands after the first render repaints the form. A failed fetch is logged and
-  leaves the page rendering keys: visibly wrong rather than silently wrong, and
-  the tools keep working.
+A deployment that renders no index through the harness' web server (a static
+shell) injects nothing; the page then renders its keys — visibly wrong rather
+than silently wrong — and the tools keep working.
 
 When you change a label or hint, change it in **both** locale files. Do not
 write copy into `lib/settings.js` or `lib/client.js`: the gate refuses a
@@ -319,7 +322,7 @@ them against the source. Keep these honest, and re-derive them after a change:
   `package.json`'s name, and the optional `settings.section` entry and its
   `settings.section.icon` contribution against `SETTINGS_SURFACE`, the
   `showInSettings` switch that gates them and the nav label they render,
-- the three route paths against `lib/index.js`,
+- the two route paths and the injected locale global against `lib/index.js`,
 - the DSH range against the three places that declare it,
 - the icon against the format and size `dsh-app-boot` admits,
 - the gallery in `screenshots.json` against `assets/` and the two READMEs, and
@@ -491,8 +494,8 @@ see a type error at all.
 |---|---|---|
 | Unit and parsers | `pnpm test` | Bundle load contract, manifest and patch contract, settings projection (live volatile reads, env fallback, out-of-range fallback), every ported parser (`adb devices`, `emulator -list-avds`, UI Automator XML, `input text` escaping, APK selection, JDK major normalisation), the SDK `adb` fallback search, and the lossless-JSON projection |
 | Configuration page render | `pnpm test` (`client-render.test.js`) | The whole form rendered with real React and `react-dom/server`: with the switch off the only registration is `plugins.row.config` keyed by `<package name>#<row id>` and no Settings slot is injected, with it on the bundle also registers `settings.section` and its `settings.section.icon` contribution, the section's id, order, locale and nav label resolve, the icon is the exact component registered into `settings.section.icon` and renders as a masked box over `currentColor` whose mask points at the published package asset, identical in both states, toggling the switch back off disposes both, the `summary` view renders one sentence and no card or control, every group, field and dictionary key present, controlled inputs holding live values, switch and select state correct, the override badge and reset, both route buttons, no title of its own, and no action bar while nothing is staged |
-| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, exactly three slot registrations exist and each takes its slot name from `PLUGIN_SURFACE` or `SETTINGS_SURFACE` instead of repeating a literal, the row page entry is keyed by `<package name>#<row id>` and carries no id, the Settings section takes its id, order, label thunk and locale from the surface, the icon takes the same id as its section, and `settings.section` / `settings.section.icon` appear nowhere outside `SETTINGS_SURFACE`; the gate then mounts the real `apply` to observe the switch, requiring no Settings registration and no Settings slot injection while it is off, both entries with a label whose key both locale files declare while it is on, and both disposed once it is saved off; the two field tables and the two group tables match key-for-key and in order, every field's kind is one the page actually renders (checked against the `RENDERERS` map's own keys, not just against the exported list), every `suggest` names a list the page provides (and a `discovery` field must carry one, because its dropdown has no other source), `locale/en.json` and `locale/zh.json` declare the same keys, **every key the page can look up exists in both files** (the fixed chrome, every group heading and hint, every field label and hint, every placeholder, every declared option label), the host's field table projects exactly what the locale files declare, every declared option label sits under the exact `field.<key>.option.<optionKey(value)>` key the page looks up, **the bundle carries no copy of its own** (no `{zh: …, en: …}` literal and no CJK string literal), all three routes agree on both sides, and the bundle is still a classic script |
-| Route integration | `test/routes-integration.test.js` | The three configuration routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, all 18 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing every route |
+| Consistency gate | `scripts/check-bundle.mjs` | Bundle id equals the package name, namespace equals the patch row id, exactly three slot registrations exist and each takes its slot name from `PLUGIN_SURFACE` or `SETTINGS_SURFACE` instead of repeating a literal, the row page entry is keyed by `<package name>#<row id>` and carries no id, the Settings section takes its id, order, label thunk and locale from the surface, the icon takes the same id as its section, and `settings.section` / `settings.section.icon` appear nowhere outside `SETTINGS_SURFACE`; the gate then mounts the real `apply` to observe the switch, requiring no Settings registration and no Settings slot injection while it is off, both entries with a label whose key both locale files declare while it is on, and both disposed once it is saved off; the two field tables and the two group tables match key-for-key and in order, every field's kind is one the page actually renders (checked against the `RENDERERS` map's own keys, not just against the exported list), every `suggest` names a list the page provides (and a `discovery` field must carry one, because its dropdown has no other source), `locale/en.json` and `locale/zh.json` declare the same keys, **every key the page can look up exists in both files** (the fixed chrome, every group heading and hint, every field label and hint, every placeholder, every declared option label), the host's field table projects exactly what the locale files declare, every declared option label sits under the exact `field.<key>.option.<optionKey(value)>` key the page looks up, **the bundle carries no copy of its own** (no `{zh: …, en: …}` literal and no CJK string literal), both routes and the locale global agree on both sides, and the bundle is still a classic script |
+| Route integration | `test/routes-integration.test.js` | The two configuration routes mounted on a **real** Cordis `Context`: each handler invoked and its `Response` read, the dictionaries published on `webserver/index-inject` and withdrawn on dispose, all 18 fields arriving as live volatile references, a saved setting visible to the very next call, a handler error answered as a `500` body rather than a crash, an absent optional service tolerated, and disposal removing every route |
 | Real host mount | `scripts/verify-mount.mjs` | Mounted on a **real** Cordis `Context` with the **real** `ToolRuntime`: 23 tools registered, **all 23 dispatched through the registry**, every argument schema enforced by the registry, every declared result schema validated for shape (device-backed tools fail before a value exists), malformed arguments refused, unknown names unresolved, 18 volatile fields, full unregistration on dispose |
 | Type gate | `tsc -p tsconfig.json --noEmit` and `tsc -p tsconfig.client.json --noEmit` | The host half's contracts against the real `@deepseek-ai/*` declarations, and the browser half's contracts against the real `react` and the real `dsh-client-ui-primitives` declarations — the two halves checked apart, because they run in different realms |
 

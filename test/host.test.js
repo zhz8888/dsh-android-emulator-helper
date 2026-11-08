@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { test } from 'node:test'
-import { apply, Config, inject, name, renderCommandReport, splitFrontmatter } from '../lib/index.js'
+import { apply, Config, inject, LOCALE_GLOBAL, name, renderCommandReport, splitFrontmatter } from '../lib/index.js'
 import { FIELD_KEYS } from '../lib/settings.js'
 
 /**
@@ -47,7 +47,7 @@ const EXPECTED_TOOLS = [
  * @returns {object} the fake context and its recordings.
  */
 function fakeContext(options = {}) {
-  const record = { tools: [], skills: [], commands: [], routes: [], effects: [], warnings: [], disposals: [] }
+  const record = { tools: [], skills: [], commands: [], routes: [], effects: [], warnings: [], disposals: [], listeners: new Map() }
   const services = {
     tools: {
       register(definition) {
@@ -112,6 +112,18 @@ function fakeContext(options = {}) {
       const available = names.every((serviceName) => services[serviceName] !== undefined)
       if (available) callback(ctx)
       return () => {}
+    },
+    // The index-injection channel: the web server emits it once per rendered
+    // page with a fresh table, and every subscriber pushes its rows. The fake
+    // keeps the listeners so a test can emit the event itself.
+    on(event, listener) {
+      const listeners = record.listeners.get(event) ?? []
+      listeners.push(listener)
+      record.listeners.set(event, listeners)
+      return () => {}
+    },
+    emit(event, ...args) {
+      for (const listener of record.listeners.get(event) ?? []) listener(...args)
     },
   }
   return { ctx, record }
@@ -221,7 +233,7 @@ test('apply registers the android-dev command', () => {
   assert.equal(typeof record.commands[0].handler, 'function')
 })
 
-test('apply registers exactly the three settings routes under /api', () => {
+test('apply registers exactly the two settings routes under /api', () => {
   const { ctx, record } = fakeContext()
   apply(ctx, configWith())
   assert.deepEqual(
@@ -229,9 +241,21 @@ test('apply registers exactly the three settings routes under /api', () => {
     [
       ['/api/android-emulator-helper/status', ['GET']],
       ['/api/android-emulator-helper/inventory', ['GET']],
-      ['/api/android-emulator-helper/locale', ['GET']],
     ],
   )
+})
+
+test('apply publishes the dictionaries on the index-injection table', () => {
+  // The copy is page-initialization data, so it is a `global` row rather than
+  // a route: the web server renders it into `index.html` ahead of the bundle.
+  const { ctx } = fakeContext()
+  apply(ctx, configWith())
+  const table = []
+  ctx.emit('webserver/index-inject', table)
+  const row = table.find((entry) => entry.name === LOCALE_GLOBAL)
+  assert.ok(row !== undefined, `apply must publish ${LOCALE_GLOBAL}`)
+  assert.equal(row.kind, 'global')
+  assert.deepEqual(Object.keys(row.value).sort(), ['en', 'zh'])
 })
 
 test('apply turns the settings service\'s automatic page generation off', () => {

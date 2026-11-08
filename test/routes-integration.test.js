@@ -94,11 +94,10 @@ async function mount(options = {}) {
 /** The symbol Cordis' volatile reference exposes as its write channel. */
 const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
 
-test('a real Cordis mount registers exactly the three settings routes', async () => {
+test('a real Cordis mount registers exactly the two settings routes', async () => {
   const fixture = await mount()
   assert.deepEqual([...fixture.routes.keys()].sort(), [
     '/api/android-emulator-helper/inventory',
-    '/api/android-emulator-helper/locale',
     '/api/android-emulator-helper/status',
   ])
   for (const route of fixture.routes.values()) {
@@ -111,7 +110,7 @@ test('a real Cordis mount registers exactly the three settings routes', async ()
 
 test('disposing the fiber unregisters every route', async () => {
   const fixture = await mount()
-  assert.equal(fixture.routes.size, 3)
+  assert.equal(fixture.routes.size, 2)
   await fixture.dispose()
   assert.equal(fixture.routes.size, 0, 'a disposed plugin must leave no route behind')
 })
@@ -137,12 +136,18 @@ test('the status route answers a JSON preflight report the page can render', asy
   await fixture.dispose()
 })
 
-test('the locale route answers the dictionaries the page renders from', async () => {
+test('the dictionaries ride the index-injection table, not a route', async () => {
+  // The copy is page-initialization data, so it is published as a `global` row
+  // on `webserver/index-inject` rather than answered by a Fetch route: the web
+  // server renders the row into `index.html` ahead of the bundle, which is what
+  // lets the page's first render carry the real copy.
   const fixture = await mount()
-  const response = await fixture.routes.get('/api/android-emulator-helper/locale').fetch()
-  assert.equal(response.status, 200)
-  assert.match(response.headers.get('content-type'), /^application\/json/)
-  const body = await response.json()
+  const table = []
+  fixture.ctx.emit('webserver/index-inject', table)
+  const row = table.find((entry) => entry.name === plugin.LOCALE_GLOBAL)
+  assert.ok(row !== undefined, `the mount must publish ${plugin.LOCALE_GLOBAL}`)
+  assert.equal(row.kind, 'global', 'the copy must be a page-initialization global')
+  const body = row.value
   // Both languages, and the same keys in each: a key present in one file and
   // missing from the other renders as the key itself in that language.
   assert.deepEqual(Object.keys(body).sort(), ['en', 'zh'])
@@ -159,6 +164,18 @@ test('the locale route answers the dictionaries the page renders from', async ()
     assert.ok(body.zh[key].length > 0, `zh ${key} must not be empty`)
   }
   await fixture.dispose()
+})
+
+test('disposing the fiber stops publishing the dictionaries', async () => {
+  const fixture = await mount()
+  await fixture.dispose()
+  const table = []
+  fixture.ctx.emit('webserver/index-inject', table)
+  assert.equal(
+    table.find((entry) => entry.name === plugin.LOCALE_GLOBAL),
+    undefined,
+    'a disposed plugin must contribute no index row',
+  )
 })
 
 test('the inventory route answers option lists the form fields can consume', async () => {
@@ -265,7 +282,6 @@ test('the routes appear when the connection service is provided after mount', as
   await new Promise((resolve) => setTimeout(resolve, 50))
   assert.deepEqual([...fixture.routes.keys()].sort(), [
     '/api/android-emulator-helper/inventory',
-    '/api/android-emulator-helper/locale',
     '/api/android-emulator-helper/status',
   ])
   await fixture.dispose()

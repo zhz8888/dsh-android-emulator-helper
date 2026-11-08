@@ -37,10 +37,10 @@ function isRecord(value) {
 }
 
 /**
- * The dictionaries the host's locale route serves.
+ * The dictionaries the host half publishes to the page.
  *
  * Read from the same two files the host half reads, so a mount in this gate
- * answers the fetch with the shipped copy.
+ * installs the shipped copy as the page-initialization global.
  *
  * @returns {{en: Record<string, string>, zh: Record<string, string>}} the dictionaries.
  */
@@ -249,31 +249,16 @@ export function checkSettingsSlotLiterals(source) {
  * degrades to the empty face — the registrations are what this observes, and a
  * gating rule that only worked through the controller would fail here.
  *
+ * The page's copy is already in the bundle's dictionaries: `loadBundle`
+ * installs the page-initialization global around the factory, which is what
+ * the web server does when it renders `index.html`. Nothing has to be stubbed
+ * here, and nothing has to be restored.
+ *
  * @param {Record<string, any>} exported - the bundle's exports.
  * @param {boolean} enabled - the value the host resolves for the switch.
- * @returns {{apply: () => void, restoreFetch: () => void, injected: string[], live: () => Array<{entry: Record<string, any>, component: unknown, disposed: boolean}>, publish: (next: boolean) => void}} the mount.
+ * @returns {{apply: () => void, injected: string[], live: () => Array<{entry: Record<string, any>, component: unknown, disposed: boolean}>, publish: (next: boolean) => void}} the mount.
  */
 function mountClientHalf(exported, enabled) {
-  // `apply` starts the locale fetch, and this gate runs in Node where a
-  // document-relative URL cannot be parsed. Answer it with the shipped
-  // dictionaries so the mount exercises the real path instead of logging a
-  // failure the gate would then have to ignore.
-  const realFetch = globalThis.fetch
-  globalThis.fetch = async (url, init) => {
-    if (String(url) === '/api/android-emulator-helper/locale') {
-      return new Response(JSON.stringify(localePayload()), {
-        status: 200,
-        headers: { 'content-type': 'application/json; charset=utf-8' },
-      })
-    }
-    if (typeof realFetch === 'function') return realFetch(url, init)
-    throw new Error(`the gate has no answer for ${String(url)}`)
-  }
-  // Restored by the caller once the mount is done: a stub left installed would
-  // answer every later fetch in this process, including a test's own.
-  const restoreFetch = () => {
-    globalThis.fetch = realFetch
-  }
   const surface = exported?.SETTINGS_SURFACE ?? {}
   const field = typeof surface.field === 'string' && surface.field.length > 0 ? surface.field : 'showInSettings'
   const section = { [field]: enabled }
@@ -330,7 +315,6 @@ function mountClientHalf(exported, enabled) {
   }
   return {
     apply: () => exported.apply(host),
-    restoreFetch,
     injected,
     live: () => registrations.filter((record) => !record.disposed),
     publish: (next) => {
@@ -390,8 +374,6 @@ export function checkSettingsSectionGated(exported, localeSettings = { en: {}, z
     off.apply()
   } catch (error) {
     return [...problems, `apply() must survive a host that serves the form: ${String(error?.message ?? error)}`]
-  } finally {
-    off.restoreFetch()
   }
   const offNames = off.live().map((record) => record.entry.name)
   if (offNames.length !== 1 || offNames[0] !== PLUGIN_PAGE_SLOT) {
@@ -408,8 +390,6 @@ export function checkSettingsSectionGated(exported, localeSettings = { en: {}, z
     on.apply()
   } catch (error) {
     return [...problems, `apply() must survive a host that serves the form: ${String(error?.message ?? error)}`]
-  } finally {
-    on.restoreFetch()
   }
   const byName = new Map(on.live().map((record) => [record.entry.name, record]))
   const section = byName.get(surface.section)
@@ -544,7 +524,7 @@ export function checkSuggestSources(fields, sources) {
  *
  * `locale/en.json` and `locale/zh.json` are the single source of every string
  * this plugin renders: the host half projects them into the field table, and
- * the browser half fetches them through the locale route. A key present in one
+ * the browser half reads them from the injected global. A key present in one
  * file and missing from the other renders as the key itself in that language,
  * because the locale binding answers the key for a missing entry.
  *
@@ -901,7 +881,7 @@ function main() {
   // --- dictionaries ----------------------------------------------------------
   // `locale/en.json` and `locale/zh.json` are the single source of every string
   // this plugin renders. The host half projects them into the field table and
-  // the browser half fetches them through the locale route, so the two halves
+  // the browser half reads them from the injected global, so the two halves
   // cannot disagree — but a key missing from one file still renders as itself,
   // and a key the page looks up but neither file declares is a raw key on the
   // page. Both are checked here.
@@ -1002,7 +982,7 @@ function main() {
   // compare a second copy; that copy is gone with the Settings section.
 
   // --- route agreement -------------------------------------------------------
-  // The host owns the prefix and the three routes; the client calls them by
+  // The host owns the prefix and the two routes; the client calls them by
   // absolute path. Both sides export the paths now — the host's `ROUTES` and
   // the browser half's `ROUTES` — so the gate compares two values instead of
   // grepping two source files for the same literal.
@@ -1015,7 +995,7 @@ function main() {
     fail('the client bundle must export ROUTES')
   }
   if (hostRoutes !== undefined && clientRoutes !== undefined) {
-    for (const name of ['status', 'inventory', 'locale']) {
+    for (const name of ['status', 'inventory']) {
       const route = hostRoutes[name]
       if (route === undefined) {
         fail(`lib/index.js must export the ${name} route in ROUTES`)
@@ -1024,6 +1004,16 @@ function main() {
       if (clientRoutes[name] !== route) {
         fail(`the client route ${name} ${JSON.stringify(clientRoutes[name])} must equal ${JSON.stringify(route)}`)
       }
+    }
+    // The copy is not a route: it is a page-initialization global. The two
+    // halves must still agree on the name, because a mismatch leaves the page
+    // rendering raw keys with nothing failing anywhere.
+    if (hostIndex.LOCALE_GLOBAL === undefined) {
+      fail('lib/index.js must export LOCALE_GLOBAL')
+    } else if (exported.LOCALE_GLOBAL !== hostIndex.LOCALE_GLOBAL) {
+      fail(
+        `the client locale global ${JSON.stringify(exported.LOCALE_GLOBAL)} must equal ${JSON.stringify(hostIndex.LOCALE_GLOBAL)}`,
+      )
     }
   }
 
@@ -1038,7 +1028,7 @@ function main() {
   }
 
   report(
-    `check-bundle: OK — bundle id, namespace, plugin surface, ${clientFields.length} fields, ${kinds?.length ?? 0} field kinds, ${sources?.length ?? 0} suggestion sources, the locale files, 3 routes, the opt-in Settings entry and script hygiene all agree.`,
+    `check-bundle: OK — bundle id, namespace, plugin surface, ${clientFields.length} fields, ${kinds?.length ?? 0} field kinds, ${sources?.length ?? 0} suggestion sources, the locale files, ${Object.keys(hostRoutes ?? {}).length} routes, the locale global, the opt-in Settings entry and script hygiene all agree.`,
   )
 }
 

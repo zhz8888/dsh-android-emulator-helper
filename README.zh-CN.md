@@ -120,11 +120,12 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 
 最后一张卡片决定这张页面出现在哪里。**在「设置」中显示** 关闭（默认）时，表单只渲染在那一行自己的页面上。打开并保存后，bundle 还会注册一个 `settings.section` 条目（id 为 `android-emulator-helper`，order 为 100），以及绘制其图标的 `settings.section.icon` 贡献，于是同一张表单、同一个设置命名空间，也会出现在 **设置** 对话框的导航里，名称为 **Android 模拟器**。图标是提供的 Android 字形，作为独立文件随包发布（`./assets/*` 导出），按 `currentColor` 做遮罩绘制，因此跟随导航项颜色，16 px；选中态就是同一图形在导航项激活色下的样子。两个注册都跟随保存后的值实时变化，因此关掉开关后该节会立即消失，无需重载。
 
-host 半侧用三个精确 Fetch 路由支撑这张页面：
+host 半侧用两个精确 Fetch 路由支撑页面上的按钮：
 
 - **检测环境** → `GET /api/android-emulator-helper/status`，返回与 `android_preflight` 相同的检查结果，逐条显示状态、详情与修复建议。
 - **刷新设备与 AVD** → `GET /api/android-emulator-helper/inventory`，探测 SDK 根目录、AVD 目录（`ANDROID_AVD_HOME`，否则 `$ANDROID_USER_HOME/avd`，否则 `~/.android/avd`）里的 AVD 并与 `emulator -list-avds` 给出的名字合并、已连接设备、已安装 JDK、已装系统镜像/platform/build-tools，用于填充上方字段的建议列表。payload 目录已不存在的记录在两个来源里都会被剔除。正是这次扫描让默认 AVD 下拉框在 emulator 无法运行时也能列出本机 AVD。
-- `GET /api/android-emulator-helper/locale` → 页面自己的文案，中英各一份。所有标签、提示与占位符都写在 `locale/en.json` 与 `locale/zh.json` 里；host 半侧读取这两个文件并在此提供，浏览器半侧按 key 查表。客户端 bundle 无法读取自己包内的文件，所以文案要跨进浏览器只能走路由——这也是页面本身不含任何字符串、两种语言不会各自漂移的原因。
+
+页面文案**不走路由**。所有标签、提示与占位符都写在 `locale/en.json` 与 `locale/zh.json` 里；host 半侧读取这两个文件，通过 web server 的 `webserver/index-inject` 表以页面初始化全局变量（`__DSH_ANDROID_EMULATOR_HELPER_LOCALE__`）的形式发布，由 web server 在插件 bundle 之前渲染进 `index.html`。因此浏览器半侧在模块作用域同步读到文案、按 key 查表——页面本身不含任何字符串，两种语言不会各自漂移，而且首帧就是正确语言，不会先显示原始 key 再等 fetch 落地。客户端 bundle 无法读取自己包内的文件，包资源路由又只收图片，所以这张注入表就是文案跨进浏览器的通道。
 
 ### 兼容旧配置
 
@@ -216,7 +217,7 @@ host 半侧用三个精确 Fetch 路由支撑这张页面：
 - `android_create_avd` 对 `avdmanager` 的确认提示固定回答 `no`，绝不静默触发数 GB 的镜像下载；请先用 `sdkmanager` 装好镜像。
 - UI 自动化依赖设备端的 `uiautomator`；不可用时 `android_ui_status` 会报告，构建 / 运行 / 截图链路不受影响。
 - 配置页的「已安装系统镜像」列表来自 SDK 目录扫描，而不是 `sdkmanager --list_installed`（后者在受限环境下会失败，且输出夹带大量弃用提示）。
-- 配置页的三条路由由插件提供并在真实 profile 中挂载，但它们的 HTTP 响应无法在 GUI 之外验证：桌面端对每个请求做鉴权，未带浏览器会话的 `curl` 访问 `/api/android-emulator-helper/status` 会在进入 handler 之前返回 `403 forbidden`。配置页的间距、暗色主题与窄屏换行仍建议在 GUI 中人工核对。
+- 配置页的两条路由由插件提供并在真实 profile 中挂载，但它们的 HTTP 响应无法在 GUI 之外验证：桌面端对每个请求做鉴权，未带浏览器会话的 `curl` 访问 `/api/android-emulator-helper/status` 会在进入 handler 之前返回 `403 forbidden`。配置页的间距、暗色主题与窄屏换行仍建议在 GUI 中人工核对。
 - 插件不触碰凭据：不读取、不转发任何含 key/token/secret 的环境变量。
 
 ## 版本与发布
