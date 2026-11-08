@@ -59,6 +59,16 @@ const READY_DEVICES = [
  * needs to know which app owns a node, or whether a container can scroll,
  * cannot get that from this record.
  */
+/**
+ * How long a dump claims the device in the singleton emulation.
+ *
+ * The claim has to outlive the start-up jitter of a concurrent dump's fake
+ * process, or the second dump would claim the device after the first one has
+ * already checked its claim — and the emulation would never notice the two
+ * dumps overlapping.
+ */
+const DUMP_OVERLAP_WINDOW_S = 1
+
 const NODE_RECORD_KEYS = [
   'index',
   'text',
@@ -82,11 +92,12 @@ const NODE_RECORD_KEYS = [
  * The fake is rendered for the host by `helpers/fake-tool.mjs`: a shell script
  * on POSIX, a Node step script behind a `.cmd` launcher on Windows.
  *
- * @param {{screen?: string, devices?: string, devicesAfterStart?: string, emulatorSteps?: object[], uiAutomator?: boolean}} [options]
+ * @param {{screen?: string, devices?: string, devicesAfterStart?: string, emulatorSteps?: object[], uiAutomator?: boolean, singletonDump?: boolean}} [options]
  *   - the XML the next dump should publish, the device transcripts, the steps
- *   of a fake `emulator` to install beside `adb`, and whether the device
- *   reports a `uiautomator` binary to `android_ui_status` (defaults to yes).
- * @returns {Promise<{rt: object, stateDir: string, argv: () => Promise<string[]>, setScreen: (xml: string) => Promise<void>, failDump: (fails: boolean) => Promise<void>, errorDump: (fails: boolean) => Promise<void>}>} the harness.
+ *   of a fake `emulator` to install beside `adb`, whether the device
+ *   reports a `uiautomator` binary to `android_ui_status` (defaults to yes),
+ *   and whether the device-side dump behaves as the singleton it is.
+ * @returns {Promise<{rt: object, stateDir: string, argv: () => Promise<string[]>, setScreen: (xml: string) => Promise<void>, failDump: (fails: boolean) => Promise<void>, errorDump: (fails: boolean) => Promise<void>, dumpOverlaps: () => Promise<string>}>} the harness.
  */
 async function fakeAdb(options = {}) {
   const binDir = await mkdtemp(path.join(tmpdir(), 'aemh-ui-bin-'))
@@ -103,6 +114,116 @@ async function fakeAdb(options = {}) {
   if (options.devicesAfterStart !== undefined) {
     await writeFile(state('devices-after-start.txt'), options.devicesAfterStart, 'utf8')
   }
+
+  // The serials the fake answers for, taken from both device transcripts.
+  const transcriptSerials = (text) =>
+    String(text ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith('List of devices'))
+      .map((line) => line.split(/\s+/)[0] ?? '')
+      .filter((serial) => serial.length > 0)
+  const serials = [
+    ...new Set([
+      ...transcriptSerials(options.devices ?? READY_DEVICES),
+      ...transcriptSerials(options.devicesAfterStart),
+    ]),
+  ]
+
+  // The per-device state of the fake: the screen a device published, the path
+  // it published it under, and the claim that models the device-side dump
+  // being a singleton. All three are per device, so two devices dumping at the
+  // same time cannot overwrite each other's record — the read-back of one of
+  // them would then fail as if its dump had written nothing.
+  const deviceState = (serial) => ({
+    window: state(`window-${serial}.xml`),
+    lastDump: state(`last-dump-${serial}.txt`),
+    owner: state(`dump-owner-${serial}`),
+  })
+  // The state of a device the fake does not know about.
+  const sharedState = {
+    window: state('window.xml'),
+    lastDump: state('last-dump.txt'),
+    owner: state('dump-owner.txt'),
+  }
+  const devices = serials.map((serial) => ({ serial, files: deviceState(serial) }))
+
+  // What a successful dump does: it publishes the screen under a path of its
+  // own and names that path.
+  const publish = (files) => [
+    { copy: [state('screen.xml'), files.window] },
+    // Record which path this call published, so a read of any OTHER
+    // path fails exactly as it would on a device that never wrote it.
+    { write: [files.lastDump, '${DUMP_PATH}'] },
+    { out: 'UI hierchary dumped to: ${DUMP_PATH}' },
+    { exit: 0 },
+  ]
+
+  // The steps of a dump that behaves as the device-side singleton: while one
+  // dump runs, a second one on the same device ends it, and the loser sees adb
+  // exit 137 with no output at all. The fake models that with one owner file
+  // per device — a dump claims the file, and a dump that finds its claim taken
+  // over is killed, exactly as the device kills it. The claim outlives the
+  // start-up jitter of a concurrent dump's process, so an overlapping dump is
+  // always noticed.
+  const singleton = (files) => [
+    { write: [files.owner, '${DUMP_PATH}'] },
+    { sleep: DUMP_OVERLAP_WINDOW_S },
+    { ifContentEquals: [files.owner, '${DUMP_PATH}'], then: publish(files) },
+    { append: [state('dump-overlaps'), '${DUMP_PATH}'] },
+    { exit: 137 },
+  ]
+
+  // The read-back and the cleanup are per device as well, for the same reason
+  // the dump is.
+  const catSteps = [
+    ...devices.map(({ serial, files }) => ({
+      ifArg: [2, serial],
+      then: [
+        {
+          ifContentEquals: [files.lastDump, '${CAT_PATH}'],
+          then: [{ cat: files.window }, { exit: 0 }],
+        },
+        { err: 'cat: ${CAT_PATH}: No such file or directory' },
+        { exit: 1 },
+      ],
+    })),
+    // A device the fake does not know about reads the shared state.
+    {
+      ifContentEquals: [sharedState.lastDump, '${CAT_PATH}'],
+      then: [{ cat: sharedState.window }, { exit: 0 }],
+    },
+    { err: 'cat: ${CAT_PATH}: No such file or directory' },
+    { exit: 1 },
+  ]
+  const rmSteps = [
+    ...devices.map(({ serial, files }) => ({ ifArg: [2, serial], then: [{ write: [files.lastDump, ''] }] })),
+    { write: [sharedState.lastDump, ''] },
+    { exit: 0 },
+  ]
+
+  const dumpSteps = [
+    // A real dump prints the success line and exits 0 even when it wrote
+    // nothing; that is what makes a failed dump look like an empty screen.
+    { ifFile: state('dump-fails'), then: [{ out: 'UI hierchary dumped to: ${DUMP_PATH}' }, { exit: 0 }] },
+    // The other real failure mode: the tool prints its diagnosis to
+    // stdout and STILL exits 0, so only the output tells the caller.
+    { ifFile: state('dump-errors'), then: [{ out: 'ERROR: could not get idle state.' }, { exit: 0 }] },
+    // A wedged dump never answers, so the only thing the caller sees
+    // is the shell deadline; it is still a failed dump, not a dead adb.
+    { ifFile: state('dump-hangs'), then: [{ hang: true }] },
+    // A device-side SIGKILL reaches the caller as exit 137 with no
+    // timeout involved; it is still a failed dump.
+    { ifFile: state('dump-killed'), then: [{ exit: 137 }] },
+    // One branch per device, so a dump and its read-back stay on that device.
+    ...devices.map(({ serial, files }) => ({
+      ifArg: [2, serial],
+      then: options.singletonDump ? singleton(files) : publish(files),
+    })),
+    // A device the fake does not know about still gets a dump, on the shared
+    // state.
+    ...(options.singletonDump ? singleton(sharedState) : publish(sharedState)),
+  ]
 
   await writeFakeTool(binDir, 'adb', [
     { record: state('argv.log') },
@@ -134,67 +255,24 @@ async function fakeAdb(options = {}) {
           // A real dump prints the success line and exits 0 even when it wrote
           // nothing; that is what makes a failed dump look like an empty screen.
           ifRest: { pattern: 'uiautomator dump*', capture: 'DUMP_PATH', strip: 'uiautomator dump ' },
-          then: [
-            {
-              ifFile: state('dump-fails'),
-              then: [{ out: 'UI hierchary dumped to: ${DUMP_PATH}' }, { exit: 0 }],
-            },
-            // The other real failure mode: the tool prints its diagnosis to
-            // stdout and STILL exits 0, so only the output tells the caller.
-            {
-              ifFile: state('dump-errors'),
-              then: [{ out: 'ERROR: could not get idle state.' }, { exit: 0 }],
-            },
-            {
-              // A wedged dump never answers, so the only thing the caller sees
-              // is the shell deadline; it is still a failed dump, not a dead adb.
-              ifFile: state('dump-hangs'),
-              then: [{ hang: true }],
-            },
-            {
-              // A device-side SIGKILL reaches the caller as exit 137 with no
-              // timeout involved; it is still a failed dump.
-              ifFile: state('dump-killed'),
-              then: [{ exit: 137 }],
-            },
-            { copy: [state('screen.xml'), state('window.xml')] },
-            // Record which path this call published, so a read of any OTHER
-            // path fails exactly as it would on a device that never wrote it.
-            { write: [state('last-dump.txt'), '${DUMP_PATH}'] },
-            { out: 'UI hierchary dumped to: ${DUMP_PATH}' },
-            { exit: 0 },
-          ],
+          then: dumpSteps,
         },
         {
           // A faithful cat: the file exists only when the dump that named this
-          // very path succeeded.
+          // very path succeeded, on the device that published it.
           ifRest: { pattern: 'cat /sdcard/window.xml', capture: 'CAT_PATH', strip: 'cat ' },
-          then: [
-            {
-              ifContentEquals: [state('last-dump.txt'), '${CAT_PATH}'],
-              then: [{ cat: state('window.xml') }, { exit: 0 }],
-            },
-            { err: 'cat: ${CAT_PATH}: No such file or directory' },
-            { exit: 1 },
-          ],
+          then: catSteps,
         },
         {
           ifRest: { pattern: 'cat /sdcard/.dsh-ui-*', capture: 'CAT_PATH', strip: 'cat ' },
-          then: [
-            {
-              ifContentEquals: [state('last-dump.txt'), '${CAT_PATH}'],
-              then: [{ cat: state('window.xml') }, { exit: 0 }],
-            },
-            { err: 'cat: ${CAT_PATH}: No such file or directory' },
-            { exit: 1 },
-          ],
+          then: catSteps,
         },
         {
           // The provider removes its own dump file; a later read of that path
-          // must therefore fail. The harness keeps window.xml as the last
+          // must therefore fail. The harness keeps the screen as the last
           // content.
           ifRest: { pattern: 'rm -f /sdcard/.dsh-ui-*' },
-          then: [{ write: [state('last-dump.txt'), ''] }, { exit: 0 }],
+          then: rmSteps,
         },
         {
           // `android_ui_status` asks the device for its UI automation binary.
@@ -281,6 +359,15 @@ async function fakeAdb(options = {}) {
     killDump: async (killed) => {
       if (killed) await writeFile(path.join(stateDir, 'dump-killed'), '', 'utf8')
       else await rm(path.join(stateDir, 'dump-killed'), { force: true })
+    },
+    /**
+     * The dumps another dump ended, as the singleton emulation recorded them.
+     *
+     * @returns {Promise<string>} the dump paths that were displaced, or an empty string when none was.
+     */
+    dumpOverlaps: async () => {
+      const text = await readFile(path.join(stateDir, 'dump-overlaps'), 'utf8').catch(() => '')
+      return text.trim()
     },
   }
 }
@@ -632,6 +719,72 @@ test('a dump killed by a signal is reported as a dump failure, not as adb dying'
     assert.doesNotMatch(error.message, /signal 9|killed by signal/)
     return true
   })
+})
+
+test('two concurrent describes of one device both succeed', async () => {
+  // The device-side `uiautomator dump` is a SINGLETON: while one dump runs, a
+  // second one on the same device ends it, and the loser sees adb exit 137
+  // with no output at all. The DSH tool executor runs a batch of calls
+  // concurrently, so two `android_ui_describe` calls in one batch lost one of
+  // them every time — and the message blamed a mid-transition screen that was
+  // perfectly fine.
+  const harness = await fakeAdb({ screen: SCREEN, singletonDump: true })
+  const [first, second] = await Promise.all([
+    describe(harness.rt, { serial: 'emulator-5554' }),
+    describe(harness.rt, { serial: 'emulator-5554' }),
+  ])
+  assert.equal(first.device.serial, 'emulator-5554')
+  assert.equal(second.device.serial, 'emulator-5554')
+  assert.equal(first.elements.length, 7)
+  assert.equal(second.elements.length, 7)
+  // The fake ends a dump that another one displaces, and it recorded none: the
+  // two dumps never ran at the same time.
+  assert.equal(await harness.dumpOverlaps(), '', 'the two dumps must not overlap on one device')
+  // The same fact, read off the command log: the first dump cleaned up before
+  // the second one started.
+  const lines = await harness.argv()
+  const firstCleanup = lines.findIndex((line) => line.includes('[rm -f'))
+  assert.ok(firstCleanup >= 0, 'every dump must clean its file up')
+  assert.equal(
+    lines.slice(0, firstCleanup).filter((line) => line.includes('[uiautomator dump')).length,
+    1,
+    'the second dump must start only after the first one finished',
+  )
+})
+
+test('describes of two different devices still run in parallel', async () => {
+  // The lock is per device and not global: a dump on one emulator must not
+  // wait for a dump on another one.
+  const harness = await fakeAdb({
+    screen: SCREEN,
+    singletonDump: true,
+    devices: [
+      'List of devices attached',
+      'emulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1',
+      'emulator-5556          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64b transport_id:2',
+      '',
+    ].join('\n'),
+  })
+  const [first, second] = await Promise.all([
+    describe(harness.rt, { serial: 'emulator-5554' }),
+    describe(harness.rt, { serial: 'emulator-5556' }),
+  ])
+  assert.equal(first.device.serial, 'emulator-5554')
+  assert.equal(second.device.serial, 'emulator-5556')
+  assert.equal(first.elements.length, 7)
+  assert.equal(second.elements.length, 7)
+  // The singleton is per device, so neither dump displaced the other.
+  assert.equal(await harness.dumpOverlaps(), '', 'dumps on different devices must not displace each other')
+  // Both dumps were in flight at the same time: the second one started before
+  // the first one's cleanup ran.
+  const lines = await harness.argv()
+  const firstCleanup = lines.findIndex((line) => line.includes('[rm -f'))
+  assert.ok(firstCleanup >= 0, 'every dump must clean its file up')
+  assert.equal(
+    lines.slice(0, firstCleanup).filter((line) => line.includes('[uiautomator dump')).length,
+    2,
+    'dumps on different devices must not wait for each other',
+  )
 })
 
 test('resolve searches text, content description, resource id and class', async () => {
