@@ -85,6 +85,54 @@ test('a malformed number falls back instead of reaching the providers', () => {
   assert.equal(settings.logTailLines, 500)
 })
 
+test('the schema accepts a negative and a fractional number so the entry still loads', () => {
+  // Cordis validates the entry config before `apply` runs, so a value the
+  // schema refuses takes the whole plugin down with it: every `android_*`
+  // tool disappears instead of the one setting falling back. The number
+  // fields must therefore accept everything `readSettings` is written to
+  // normalise.
+  const numberFields = [...FIELDS.values()].filter((field) => field.kind === 'number')
+  assert.deepEqual(
+    numberFields.map((field) => field.key),
+    ['bootTimeoutSeconds', 'minSdk', 'buildTimeoutSeconds', 'logTailLines'],
+  )
+  for (const field of numberFields) {
+    for (const value of [-1, 1.5, 0]) {
+      assert.doesNotThrow(() => Config({ [field.key]: value }), `${field.key} must accept ${value}`)
+    }
+  }
+})
+
+test('a negative and a fractional number project the declared default', () => {
+  // The fallback in `readSettings` is only reachable if the schema let the
+  // value through, so the two halves are pinned together: the schema keeps
+  // the entry loadable, the projection decides what is usable.
+  const settings = readSettings(
+    liveConfig({ bootTimeoutSeconds: -1, minSdk: -23, buildTimeoutSeconds: 1.5, logTailLines: 12.5 }),
+    {},
+  )
+  assert.equal(settings.bootTimeoutSeconds, 180)
+  assert.equal(settings.minSdk, 23)
+  assert.equal(settings.buildTimeoutSeconds, 600)
+  assert.equal(settings.logTailLines, 500)
+})
+
+test('a stored 0 is unset and projects the declared default', () => {
+  const settings = readSettings(liveConfig({ bootTimeoutSeconds: 0, logTailLines: 0 }), {})
+  assert.equal(settings.bootTimeoutSeconds, 180)
+  assert.equal(settings.logTailLines, 500)
+})
+
+test('the schema still refuses a string for a number field', () => {
+  // The field's type stays `number`, so a hand-edited profile carrying `'180'`
+  // is refused by the schema instead of being silently coerced into 180. The
+  // configuration page writes real numbers; the string branch of the
+  // projection is the legacy environment rung, where a value is always a
+  // string.
+  assert.throws(() => Config({ bootTimeoutSeconds: '180' }), /expected number/)
+  assert.throws(() => Config({ logTailLines: '500' }), /expected number/)
+})
+
 test('a non-boolean setting keeps the declared default', () => {
   assert.equal(readSettings({ autoStartEmulator: { get: () => 'yes' } }, {}).autoStartEmulator, true)
   assert.equal(readSettings({ autoStartEmulator: { get: () => false } }, {}).autoStartEmulator, false)
