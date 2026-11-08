@@ -216,6 +216,22 @@ test('brief never returns an empty message', () => {
   assert.match(brief({ ...empty, code: 127 }), /could not be started/)
 })
 
+test(
+  'a child killed by a signal reports the shell convention for a signalled exit',
+  { skip: !POSIX, timeout: 20_000 },
+  async () => {
+    // A child killed by a signal leaves `exitCode` null, so the exit code has
+    // to be the shell's own convention: 128 + the signal number. Reporting a
+    // plain 1 hid the signal from the caller and from the message that names
+    // it, which made the `code > 128` branch of the description unreachable.
+    const out = await run([process.execPath, '-e', "process.kill(process.pid, 'SIGKILL')"], {
+      timeout: 15_000,
+    })
+    assert.equal(out.code, 137)
+    assert.match(brief(out), /killed by signal 9/)
+  },
+)
+
 test('brief still prefers real output when there is any', () => {
   const withOutput = { cmd: ['adb'], code: 1, stdout: 'boom', stderr: '', timed: false }
   assert.equal(brief(withOutput), 'boom')
