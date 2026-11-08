@@ -18,7 +18,7 @@ on purpose — the browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 387 tests: unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 387 tests (377 pass, 0 fail, 10 skipped on Windows): unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -55,6 +55,8 @@ needed.
 ```
 dsh-android-emulator-helper/
 ├── package.json            # dsh.bundle.patch, dsh.client, peer dependencies (the compatibility gate)
+├── pnpm-lock.yaml          # the only lockfile; pnpm is the only package manager this repository uses
+├── pnpm-workspace.yaml     # not a workspace: it carries the install-script policy (strictDepBuilds)
 ├── tsconfig.json           # the host half's type gate: checkJs, noEmit, types: ["node"]
 ├── tsconfig.client.json    # the browser half's type gate: checkJs, noEmit, lib ES2023+DOM, types: []
 ├── cordis.patch.yml        # - insert: [{ id: android-emulator-helper, name: '@zhz8888/dsh-android-emulator-helper' }]
@@ -62,6 +64,9 @@ dsh-android-emulator-helper/
 ├── screenshots.json        # the four preview images a plugin market shows, in scroll order
 ├── locale/en.json          # the plugin's copy in English: meta (name/description) plus the whole settings dictionary
 ├── locale/zh.json          # the Simplified Chinese mirror, key for key
+├── README.md               # the English edition; README.zh-CN.md is its mirror
+├── README.zh-CN.md         # the Simplified Chinese edition; same headings, tables and counts
+├── LICENSE                 # MIT
 ├── lib/
 │   ├── index.js            # host half: tools, skill, command, the two Fetch routes and the copy injection
 │   ├── client.js           # browser half: the hand-written __ModuleLoader__ bundle, the Plugins page plus its optional Settings section
@@ -137,6 +142,47 @@ running inside the host process, so it is not in the browser realm to be
 imported. The **field table** — keys, kinds, options, suggestion sources — is
 therefore written twice, and `scripts/check-bundle.mjs` keeps the two copies
 identical.
+
+Those 18 fields live in 6 groups, and this is the whole table — the group order
+is the page order, and the group's `id` is also its dictionary namespace:
+
+| Group | Field | Kind | Default | Legacy environment variable |
+|---|---|---|---|---|
+| `sdk` | `sdkPath` | text | `""` | `ANDROID_PLUGIN_SDK_PATH` |
+| `sdk` | `jdkMajor` | text | `"17"` | `ANDROID_PLUGIN_JDK_MAJOR` |
+| `sdk` | `buildToolsVersion` | text | `"35.0.0"` | `ANDROID_PLUGIN_BUILD_TOOLS_VERSION` |
+| `emulator` | `defaultAvd` | discovery | `"medium_phone"` | `ANDROID_PLUGIN_DEFAULT_AVD` |
+| `emulator` | `defaultSerial` | text | `""` | — |
+| `emulator` | `autoStartEmulator` | boolean | `true` | — |
+| `emulator` | `emulatorArgs` | multiline | `""` | — |
+| `emulator` | `bootTimeoutSeconds` | number | `180` | — |
+| `image` | `apiLevel` | text | `"35"` | `ANDROID_PLUGIN_API_LEVEL` |
+| `image` | `systemImageVariant` | select | `"default"` | `ANDROID_PLUGIN_SYSTEM_IMAGE_VARIANT` |
+| `image` | `systemImageAbi` | select | `""` | `ANDROID_PLUGIN_SYSTEM_IMAGE_ABI` |
+| `image` | `minSdk` | number | `23` | — |
+| `build` | `buildTimeoutSeconds` | number | `600` | — |
+| `build` | `gradleExtraArgs` | multiline | `""` | — |
+| `output` | `dataDir` | text | `""` | — |
+| `output` | `screenshotDir` | text | `""` | — |
+| `output` | `logTailLines` | number | `500` | — |
+| `interface` | `showInSettings` | boolean | `false` | — |
+
+The two `select` fields carry their options: `systemImageVariant` offers
+`default`, `google_apis` and `google_apis_playstore`, `systemImageAbi` offers
+the empty string plus `arm64-v8a`, `x86_64`, `x86` and `armeabi-v7a`. Exactly
+seven fields carry a legacy environment variable, and those are the seven the
+original plugin exposed.
+
+A numeric field's schema is `z.number()`, **not** `z.natural()`. Cordis
+validates the entry's config before `apply` runs, so a schema that refused a
+negative or a fractional timeout would take the whole plugin down with it — every
+`android_*` tool included — instead of falling back the way the projection
+intends. What counts as a usable value is therefore decided in one place only:
+`readSettings` projects every number that is not a positive integer onto the
+declared default, and the declared type stays `number`, so a stored string is
+still refused rather than being silently coerced into one. The four numeric
+fields are `bootTimeoutSeconds`, `minSdk`, `buildTimeoutSeconds` and
+`logTailLines`.
 
 The **copy is not written twice**. Every user-visible string lives in
 `locale/en.json` and `locale/zh.json`, under a `settings` object beside the
@@ -286,6 +332,36 @@ be peers or devDependencies.
   is-error result. A provider must therefore throw for a real failure and must
   not "succeed" with a fabricated value.
 
+## The schema vocabulary has no bounds, so the provider carries them
+
+DSH's tool schema is a small, fixed vocabulary. A value node knows `type`,
+`enum`, `const`, `description`, `title`, `default` and `examples`, plus
+the structural keywords `items`, `properties` and `oneOf` for containers. What
+it does **not** know is `minimum` or `maximum`, and there is no way to smuggle
+one in: an unknown keyword is not part of the vocabulary at all, so an upstream
+Zod bound cannot be carried across as a schema annotation.
+
+That is why the upstream Zod constraints cannot be copied across. The upstream
+plugin declared `durationMs` a positive number and let its registry refuse
+anything else; here the constraint has to live in the provider, because the
+schema cannot carry it. `lib/providers/ui.js` therefore refuses a
+non-positive `durationMs` itself, and refuses it **before the device is
+contacted**: a zero duration is not a shorter swipe, it is a different gesture,
+and clamping it would have the device do something the caller never asked for.
+Clamping is worse than refusing, so the provider refuses.
+
+The same rule holds for the arguments that reach `adb shell` as command words:
+`applicationId` (`android_launch_app`, `android_terminate_app`) and `url`
+(`android_open_url`) are validated **before the device is resolved**, so a
+malformed value never starts an emulator to carry it. Refusing early is a
+property of the provider, not of the schema — the schema only knows the type of
+each of these three arguments.
+
+The same shape governs the settings: a numeric field's schema accepts any
+number and `readSettings` decides what is usable. The rule is uniform —
+**what the schema cannot express, the provider enforces, and it enforces it
+before it touches the device.**
+
 ## Timeouts are seconds in the settings, milliseconds in the arguments
 
 `bootTimeoutSeconds` and `buildTimeoutSeconds` are what the configuration page
@@ -301,6 +377,62 @@ upstream ZCode `android-emulator@0.1.0` plugin verbatim, and the READMEs state
 that as a claim. Adding, renaming or dropping an argument breaks it — find a
 different way. The upstream server to compare against is
 `~/.zcode/cli/plugins/cache/zcode-plugins-official/android-emulator/0.1.0/dist/mcp/server.js`.
+
+This is the whole surface. A **bold** argument is required; every other one is
+optional, and the type is the one the registry enforces:
+
+| Tool | Arguments |
+|---|---|
+| `android_preflight` | — |
+| `android_discover_project` | — |
+| `android_create_app` | **name**: string, packageName: string, dir: string, minSdk: integer, compileSdk: integer, overwrite: boolean |
+| `android_build_app` | serial: string, avd: string, timeoutMs: integer, projectDir: string, module: string, variant: string, applicationId: string |
+| `android_build_and_run` | serial: string, avd: string, timeoutMs: integer, projectDir: string, module: string, variant: string, applicationId: string, launchActivity: string |
+| `android_list_devices` | — |
+| `android_list_avds` | — |
+| `android_start_emulator` | avd: string, timeoutMs: integer |
+| `android_stop_emulator` | **serial**: string |
+| `android_create_avd` | name: string, packageId: string, device: string, force: boolean |
+| `android_install_app` | serial: string, avd: string, timeoutMs: integer, **apkPath**: string |
+| `android_launch_app` | serial: string, avd: string, timeoutMs: integer, **applicationId**: string, activity: string |
+| `android_terminate_app` | serial: string, avd: string, timeoutMs: integer, **applicationId**: string |
+| `android_open_url` | serial: string, avd: string, timeoutMs: integer, **url**: string |
+| `android_screenshot` | serial: string, avd: string, timeoutMs: integer, path: string |
+| `android_logs` | serial: string, avd: string, timeoutMs: integer, applicationId: string, lines: integer, limit: integer |
+| `android_ui_status` | — |
+| `android_ui_describe` | serial: string, avd: string, timeoutMs: integer |
+| `android_ui_resolve` | serial: string, avd: string, timeoutMs: integer, **query**: string |
+| `android_ui_tap` | serial: string, avd: string, timeoutMs: integer, **x**: number, **y**: number |
+| `android_ui_swipe` | serial: string, avd: string, timeoutMs: integer, **x1**: number, **y1**: number, **x2**: number, **y2**: number, durationMs: number |
+| `android_ui_type_text` | serial: string, avd: string, timeoutMs: integer, **text**: string |
+| `android_ui_keyevent` | serial: string, avd: string, timeoutMs: integer, **key**: string |
+
+The key-event enum is the six names in this order, and the order is frozen too:
+`BACK`, `HOME`, `ENTER`, `APP_SWITCH`, `MENU`, `SEARCH`. `android_ui_keyevent`
+declares them as the schema's `enum`, so the registry refuses an unknown name
+before the provider is reached; the provider refuses it again, because the
+enum is what the type checker compares the model's key against.
+
+## The device-side dump is a singleton, so one device dumps at a time
+
+`uiautomator dump` is a **singleton on the device**: while one dump runs, a
+second one on the same device ends it, and the loser sees adb exit 137 with no
+output at all. The DSH tool executor runs a batch of calls concurrently, so a
+model that asked for two `android_ui_describe` calls in one batch lost one of
+them every time — and the message it lost them with blamed the screen, which
+was perfectly fine.
+
+`lib/providers/ui.js` therefore serializes the dumps **per serial**, not
+globally: two dumps on the same device take turns, and dumps on two different
+devices still run in parallel. A dump that another dump ended is retried once,
+because the dump that ended it has finished by then. Every dump also goes to a
+path unique to that call, so a failed dump can never be read as the previous
+screen, and the file is removed again afterwards.
+
+A dump that fails for any other reason is reported as one actionable message —
+a screen that shows nothing, or a secure window in front of it — rather than
+the raw transport failure, which named the transport and said nothing about the
+screen the caller asked for.
 
 ## Editing a plugin in a running host
 
@@ -370,10 +502,11 @@ own in either placement, so the same rhythm carries into both.
 
 Every paragraph must state its own `margin`. The bundle is compiled on its own,
 so it cannot rely on a bare-element reset from wherever it is mounted, and the
-UA's `p { margin: 1em 0 }` otherwise shows through: 24px per hint, 448px of page
-height on its own, and a gap between a control and the hint that describes it
-which no amount of tightening the surrounding boxes could hide. A new `<p>` rule
-that forgets this is invisible in review and obvious on screen.
+UA's `p { margin: 1em 0 }` otherwise shows through: 24px per hint, a 2992px page
+before the tightening against 2440px after (measured in Chromium at 760px wide),
+and a gap between a control and the hint that describes it which no amount of
+tightening the surrounding boxes could hide. A new `<p>` rule that forgets this
+is invisible in review and obvious on screen.
 
 ## The two READMEs are mirrors, and their links are relative
 
@@ -488,7 +621,8 @@ points at a stale release whose types do not match the runtime API.
 `pnpm run check` is the definition of done: the unit and render suites, then the
 consistency gate, then the mount, then the type gate. `pnpm test` alone is not
 enough — it cannot see the host↔client drift the gate exists for, and it cannot
-see a type error at all.
+see a type error at all. The suite is 387 tests: 377 pass, 0 fail, and 10 are
+skipped on a Windows host (enumerated below).
 
 | Layer | Command | What it proves |
 |---|---|---|
@@ -545,17 +679,20 @@ Three consequences worth knowing:
   would list that machine's AVDs in every suite that starts an emulator. Point
   it at the throwaway tree, as the fake-tool runtimes do.
 
-The tests skipped on Windows are the ones whose contract **is** POSIX — SIGTERM
-trap-and-escalate, a child killed by a signal (Windows has no signal deaths),
-a grandchild holding a pipe open, and a directory symlink
-fixture (which needs `SeCreateSymbolicLinkPrivilege`) — plus the seed-table
-check, which skips when no installed DSH web frontend can be located on the
-platform (`DSH_WEB_FRONTEND` points it at one the default search cannot see), and
-the wedged-dump case: its hanging fake is a grandchild of the `.cmd` launcher,
-`run()` terminates only the launcher, and the survivor holds the runner's stdout
-pipe open. A ninth skips itself on a machine that has a real SDK: the
-UI-backend case expects no `adb` to be reachable and is skipped when the host
-resolves one inside an installed SDK. Each skip carries the reason next to it.
+Ten of them are skipped on a Windows host, and each skip carries its reason
+next to it. Seven are the ones whose contract **is** POSIX: the SIGTERM
+trap-and-escalate cases (the capture that ignores SIGTERM, the child that
+ignores it, and `runBytes()`), a child killed by a signal (Windows has no signal
+deaths), a grandchild holding a pipe open, a non-batch tool spawned directly,
+and a directory symlink fixture (which needs `SeCreateSymbolicLinkPrivilege`).
+Three more are environmental: the seed-table check, which skips when no
+installed DSH web frontend can be located on the platform (`DSH_WEB_FRONTEND`
+points it at one the default search cannot see); the wedged-dump case, whose
+hanging fake is a grandchild of the `.cmd` launcher, `run()` terminates only the
+launcher, and the survivor holds the runner's stdout pipe open; and the
+UI-backend case, which expects no `adb` to be reachable and skips itself on a
+machine that has a real SDK, because the host resolves one inside an installed
+SDK.
 
 Two limits are accepted rather than worked around:
 
@@ -619,9 +756,9 @@ means at least a minor bump**. A branch with two features is `x.(y+1).0`, not
    git push gitea  main && git push gitea  vX.Y.Z
    ```
 
-4. Publish from the tagged commit. Both flags are required: the local `.npmrc`
-   points `registry` at a read-only mirror, and a scoped package stays private
-   without public access.
+4. Publish from the tagged commit. Both flags are required: the user-level
+   `.npmrc` points `registry` at a read-only mirror, and a scoped package stays
+   private without public access.
 
    ```bash
    npm publish --registry https://registry.npmjs.org --access public
@@ -638,8 +775,8 @@ means at least a minor bump**. A branch with two features is `x.(y+1).0`, not
    git rev-parse vX.Y.Z^{commit}
    ```
 
-   `npm pack` fails on this machine because `~/.npm` holds root-owned files;
-   `pnpm pack` is the working equivalent and prints the same file list.
+   `npm pack` and `pnpm pack` both work here and print the same file list —
+   33 entries, and neither `assets/` nor `screenshots.json` among them.
 6. Write the GitHub Release for the tag: **Chinese first, then English**, the
    halves separated by `---` and each opening with its own `##` headline. Both
    halves carry the same sections — a one-line summary, what the version
@@ -693,5 +830,10 @@ behaviour and will report the bugs this version fixed.
   running the installed `gradle wrapper`, and that needs one. `README.md` states
   this honestly under "Known limitations"; do not describe the generated
   project as self-contained.
+- Weaken a provider's refusal into a clamp. A non-positive `durationMs`, a
+  malformed `applicationId` and a URL without a scheme are refused **before the
+  device is contacted**, because a clamp would have the device do something the
+  caller never asked for — and a malformed id must never start an emulator to
+  carry it.
 - Track `docs/`. It is not part of the deliverable: nothing in it ships, nothing
   reads it at runtime, and no test loads it.
