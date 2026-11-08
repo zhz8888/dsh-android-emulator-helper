@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createRuntime } from '../lib/runtime.js'
 import { logs } from '../lib/providers/logs.js'
-import { terminate } from '../lib/providers/app.js'
+import { openUrl, terminate } from '../lib/providers/app.js'
 import { writeFakeTool } from './helpers/fake-tool.mjs'
 
 /**
@@ -273,6 +273,32 @@ test('terminate force-stops an installed package and reports the device command'
   const calls = await argv()
   assert.ok(calls.some((line) => line.includes('[pm list packages com.example.app]')))
   assert.ok(calls.some((line) => line.includes('[am force-stop com.example.app]')))
+})
+
+test('an invalid URL is refused before the device is contacted', async () => {
+  // A malformed URL has to be refused before a device is resolved: resolving
+  // one can boot an emulator, which is a minute of work and a window on the
+  // desktop for a request that was never going to run.
+  const { rt, argv } = await fakeAdb()
+  await assert.rejects(
+    () => openUrl(rt, { serial: 'R58M12ABCDE', url: 'not a url' }),
+    /Invalid URL/,
+  )
+  assert.deepEqual(await argv(), [], 'the device must not be contacted for a malformed URL')
+})
+
+test('open url starts the VIEW intent on the device', async () => {
+  const { rt, argv } = await fakeAdb()
+  const result = await openUrl(rt, { serial: 'R58M12ABCDE', url: 'https://example.com' })
+  assert.equal(result.opened, true)
+  assert.equal(result.url, 'https://example.com')
+  const calls = await argv()
+  // The device-shell command is one argv token, because it is handed to
+  // the device shell as a single command line.
+  assert.ok(
+    calls.some((line) => line.includes('[am start') && line.includes('https://example.com')),
+    'the VIEW intent must reach the device with the URL',
+  )
 })
 
 test('terminate refuses a package the device does not have', async () => {

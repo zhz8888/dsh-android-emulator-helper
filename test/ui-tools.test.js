@@ -744,6 +744,28 @@ test('swipe accepts reversed and zero-distance gestures', async () => {
   ])
 })
 
+test('swipe refuses a non-positive duration instead of sending it to the device', async () => {
+  const { rt, argv } = await fakeAdb({ screen: SCREEN })
+  for (const durationMs of [0, -100]) {
+    await assert.rejects(
+      () => swipe(rt, { x1: 0, y1: 0, x2: 10, y2: 10, durationMs, serial: 'emulator-5554' }),
+      (error) => {
+        // The argument is named, so the caller knows which one to fix.
+        assert.match(error.message, /durationMs/)
+        assert.match(error.message, /positive/)
+        return true
+      },
+      `durationMs: ${durationMs} must be refused`,
+    )
+  }
+  // Nothing reached the device: the refusal happens before the device is even
+  // contacted, and a zero or negative duration is not a shorter swipe but a
+  // different gesture.
+  const sent = await argv()
+  assert.deepEqual(sent.filter((line) => line.includes('[input swipe')), [])
+  assert.deepEqual(sent.filter((line) => line.includes('[devices]')), [])
+})
+
 test('type text sends the escaped value to adb', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   const report = await typeText(rt, { text: 'a b', serial: 'emulator-5554' })
