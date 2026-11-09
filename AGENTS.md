@@ -18,7 +18,7 @@ on purpose — the browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 387 tests (377 pass, 0 fail, 10 skipped on Windows): unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 389 tests (379 pass, 0 fail, 10 skipped on Windows): unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -466,9 +466,11 @@ A plugin market shows the screenshots `screenshots.json` lists next to
 `package.json`: the paths are relative to the repository root, may not leave it,
 and the order is the order they are displayed. The four live in `assets/` under
 `settings-page-N-<what-the-shot-shows>.png` and show the real configuration page
-on the plugin's detail view of the Plugins panel in DSH, in the order it
-scrolls — never a mock-up, and never a shot of a build that was not captured from
-the running page.
+in the Plugins panel of DSH, in the order it scrolls — never a mock-up, and
+never a shot of a build that was not captured from the running page. They were
+captured before the page moved to the plugin row's own page: the form they show
+is the same one the row's **Configure** control opens today, but the surface
+around it is the bundle's detail page, which is the placement they predate.
 
 The READMEs embed the same four files, so a rename lands in three places at once;
 `test/manifest.test.js` fails on a half-rename instead of letting GitHub render a
@@ -553,11 +555,12 @@ The Settings rail's own icon is supplied artwork rather than a drawing of this
 repository's, and it ships as a file: `lib/assets/android-head.svg`, published
 by the `"./assets/*": "./lib/assets/*"` export in `package.json`. A client
 bundle cannot read its own package, so `AndroidIcon` references the file through
-`require.asset("<package>/assets/android-head.svg")` — the Host resolves that
-path against this package's own manifest and serves the bytes at
-`/plugins/<package>/assets/<path>`. The file, the export and the reference are
-therefore pinned together by `test/manifest.test.js`: a missing export or a
-misspelled file answers 404 and leaves the rail item blank.
+`require.asset("plugins/<package>/assets/android-head.svg")` — the argument is
+the served path with its `plugins/` prefix, not a bare package path — and the
+Host resolves that path against this package's own manifest and serves the
+bytes at `/plugins/<package>/assets/<path>`. The file, the export and the
+reference are therefore pinned together by `test/manifest.test.js`: a missing
+export or a misspelled file answers 404 and leaves the rail item blank.
 
 The artwork is a bold-outline Android head: one path whose second subpath knocks
 the face out and whose two dot eyes are filled back in. The rail paints the icon
@@ -621,7 +624,7 @@ points at a stale release whose types do not match the runtime API.
 `pnpm run check` is the definition of done: the unit and render suites, then the
 consistency gate, then the mount, then the type gate. `pnpm test` alone is not
 enough — it cannot see the host↔client drift the gate exists for, and it cannot
-see a type error at all. The suite is 387 tests: 377 pass, 0 fail, and 10 are
+see a type error at all. The suite is 389 tests: 379 pass, 0 fail, and 10 are
 skipped on a Windows host (enumerated below).
 
 | Layer | Command | What it proves |

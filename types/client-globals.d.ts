@@ -45,12 +45,15 @@ declare function require(specifier: string): any
  * The asset half of the same lookup.
  *
  * A client package publishes its images through `package.json`'s
- * `"./assets/*"` export; the Host resolves `<package>/assets/<path>` against
- * that package's own manifest and serves the bytes at
- * `/plugins/<package>/assets/<path>`. This call compiles the declaration into
- * the URL the page's carrier can fetch — document-relative in the Web page, a
- * Blob URL in the WebWorker preview — which is the only way a client bundle
- * reaches a file of its own package.
+ * `"./assets/*"` export. The argument is the served path with its `plugins/`
+ * prefix — `require.asset('plugins/<package>/assets/<path>')`, not a bare
+ * package path — and the Host resolves it against this package's own manifest,
+ * so the export is what decides which files exist, then serves the bytes at
+ * `/plugins/<package>/assets/<path>`. This call compiles the reference into
+ * the URL the page's carrier can fetch — document-relative in the Web page,
+ * a Blob URL in the WebWorker preview — which is the only way a client bundle
+ * reaches a file of its own package. A shell with no asset lookup leaves that
+ * URL empty, so the caller draws nothing rather than throwing.
  */
 declare namespace require {
   function asset(reference: string): string

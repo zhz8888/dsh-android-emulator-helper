@@ -14,11 +14,10 @@
 # `allowBuilds: { <pkg>: true }` if the build is needed, `<pkg>: false` if it is
 # not. Never disable the protection wholesale.
 #
-# The current dependency tree (27 packages: @deepseek-ai/cordis,
-# @deepseek-ai/dsh-tools, @deepseek-ai/schemastery, react, react-dom and their
-# transitive dependencies) was scanned and contains no
+# The current dependency tree was scanned and contains no
 # preinstall/install/postinstall/prepare script, so no allowBuilds entry is
-# needed today.
+# needed today. Re-scan it when a dependency is added: a count here would rot
+# with every bump, and the scan is what decides the policy.
 #
 # Note: `dsh plugin --profile <profile> add` runs pnpm inside the profile
 # directory and does not read this file; this policy only governs development
