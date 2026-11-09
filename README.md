@@ -134,29 +134,28 @@ The original plugin's `userConfig` — the seven variables in the last column ab
 ## Screenshots
 
 All four are real captures of this configuration page — nothing is mocked up —
-taken in DSH harness 0.2.1-rc.3, in the order you scroll it. They are
+taken in DSH harness 0.2.2-rc.1, in the order you scroll it. They are
 1598 × 1588 PNGs of the tightened card rhythm
 (7px above and below a field, a `12px 16px` card, 16px between cards), captured
 in the Chinese locale with the **Plugins** panel open: the first shot opens on
-the plugin's title **Android 模拟器助手** and description, the sidebar shows
-**插件** selected, and the field keys in the table above are the same in either
-language. Grey text is a placeholder standing in for a field left empty, a field
-carrying a value other than its declared default shows an override badge and a
-reset control, and the sticky save bar appears only while an edit is staged, so
-it is not in these shots.
+the plugin row's own page — its crumb, the plugin's title **Android 模拟器助手**
+and description — the sidebar shows **插件** selected, and the field keys in the
+table above are the same in either language. Grey text is a placeholder
+standing in for a field left empty, a field carrying a value other than its
+declared default shows an override badge and a reset control, and the sticky
+save bar appears only while an edit is staged, so it is not in these shots.
 
-They show that form on the bundle's detail page: they were captured before the
-parameter page moved to the plugin row's own page, so the surface around the
-form sits one click earlier than the one the plugin opens from the row's
-**Configure** control today. The form itself — every card, field, label and
-hint — is unchanged, and the gallery is re-captured after the next host restart.
+They show that form where it lives today: on the plugin row's own page in the
+**Plugins** panel, the page the row's **Configure** control opens — not on the
+bundle's detail page.
 
-**1. SDK and toolchain** — the form opens with the plugin's title, package name
-and description, then the SDK root, JDK major version and build-tools version
-every `android_*` call resolves first, the emulator-and-devices card down to its
-boot timeout, and the start of the API-level card:
+**1. SDK and toolchain** — the form opens on the plugin row's own page with the
+plugin's title, package name and description, then the SDK root, JDK major
+version and build-tools version every `android_*` call resolves first, the
+emulator-and-devices card down to its boot timeout, and the start of the
+API-level card:
 
-![The Android Emulator Helper form on the bundle's detail page in the Plugins panel of DSH: the plugin title and description, then the SDK and toolchain card with the Android SDK root, JDK major version and build-tools version, then the emulator-and-devices card down to the boot timeout and the start of the API-level card](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-1-sdk-and-toolchain.png)
+![The Android Emulator Helper form on the plugin row's own page in the Plugins panel of DSH: the plugin title and description, then the SDK and toolchain card with the Android SDK root, JDK major version and build-tools version, then the emulator-and-devices card down to the boot timeout and the start of the API-level card](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-1-sdk-and-toolchain.png)
 
 **2. Emulator and devices** — the form scrolled by one card: the
 SDK-and-toolchain card from its heading, then the emulator-and-devices card —
@@ -174,13 +173,12 @@ timeout and the extra Gradle arguments, then the top of the output card:
 ![The form scrolled further: the emulator-and-devices card from its heading, then the API-level-and-system-image card with the system image variant, ABI and default minSdk, the build card with the Gradle build timeout and the extra Gradle arguments, then the top of the output card](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-3-api-and-build.png)
 
 **4. Output and diagnostics** — where screenshots and build logs land, then the
-diagnostics-and-discovery card: the two buttons backing the page, next to the
-Fetch routes above, and the discovery result it fills in — the detected SDK
-root, AVD home, AVDs and installed system images. The interface card that closes
-the page today, and with it the **Show in Settings** switch, is newer than this
-capture and therefore below it:
+interface card that closes the page, with its **Show in Settings** switch, and
+the diagnostics-and-discovery card: the two buttons backing the page, next to
+the Fetch routes above, and the discovery result it fills in — the detected SDK
+root, AVD home, AVDs and installed system images:
 
-![The end of the captured form: the output-and-logs card with the data directory, screenshot directory and default logcat line count, then the diagnostics-and-discovery card with the run-diagnostic and refresh-devices buttons and the discovery result listing the detected SDK root, AVD home, AVDs and installed system images](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-4-output-and-diagnostics.png)
+![The end of the captured form: the output-and-logs card with the data directory, screenshot directory and default logcat line count, then the interface card with the Show in Settings switch, then the diagnostics-and-discovery card with the run-diagnostic and refresh-devices buttons and the discovery result listing the detected SDK root, AVD home, AVDs and installed system images](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-4-output-and-diagnostics.png)
 
 `screenshots.json` lists these four files in this order next to `package.json`
 in the repository, which is how a plugin market finds them.

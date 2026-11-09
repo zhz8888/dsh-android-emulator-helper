@@ -468,9 +468,9 @@ and the order is the order they are displayed. The four live in `assets/` under
 `settings-page-N-<what-the-shot-shows>.png` and show the real configuration page
 in the Plugins panel of DSH, in the order it scrolls — never a mock-up, and
 never a shot of a build that was not captured from the running page. They were
-captured before the page moved to the plugin row's own page: the form they show
-is the same one the row's **Configure** control opens today, but the surface
-around it is the bundle's detail page, which is the placement they predate.
+captured on the plugin row's own page — the page the row's **Configure** control
+opens — in DSH 0.2.2-rc.1, so the placement they show is the one the plugin
+uses today.
 
 The READMEs embed the same four files, so a rename lands in three places at once;
 `test/manifest.test.js` fails on a half-rename instead of letting GitHub render a
@@ -482,10 +482,10 @@ not one of the four stays out of the repository like every other run artifact.
 
 The four are currency, not history: a change to the page's layout, or to any
 label inside a shot, means all four are re-captured before the next release, and
-the sentence in both READMEs that dates them is updated with them. Until the
-re-capture lands, both READMEs say what the shots predate, so the gap is stated
-rather than implied. Nothing fails if they rot — the market simply shows a page
-that no longer exists.
+the sentence in both READMEs that dates them is updated with them. Between the
+change and the re-capture, both READMEs say which placement the shots show, so
+the gap is stated rather than implied. Nothing fails if they rot — the market
+simply shows a page that no longer exists.
 
 ## The configuration page's rhythm is deliberate
 

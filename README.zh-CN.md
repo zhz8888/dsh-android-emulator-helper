@@ -133,13 +133,13 @@ host 半侧用两个精确 Fetch 路由支撑页面上的按钮：
 
 ## 配置页截图
 
-四张都是这张配置页的真实实拍——没有任何拼凑——拍摄于 DSH harness 0.2.1-rc.3，按页面滚动顺序排列。1598 × 1588 PNG，对应收紧后的卡片节奏（每个字段上下各 7px，卡片 `12px 16px`，卡片之间 16px）；截图时是中文语言，**插件** 面板打开着：第一张从插件标题 **Android 模拟器助手** 与描述开始，侧边栏高亮 **插件**，而上表里的字段 key 两种语言下完全一致。灰色文字是留空字段的占位提示；取值不同于内置默认值的字段会显示已覆盖标记与恢复默认入口；底部保存条只在有改动待保存时出现，因此这几张图里没有它。
+四张都是这张配置页的真实实拍——没有任何拼凑——拍摄于 DSH harness 0.2.2-rc.1，按页面滚动顺序排列。1598 × 1588 PNG，对应收紧后的卡片节奏（每个字段上下各 7px，卡片 `12px 16px`，卡片之间 16px）；截图时是中文语言，**插件** 面板打开着：第一张从插件行自己页面上的面包屑、插件标题 **Android 模拟器助手** 与描述开始，侧边栏高亮 **插件**，而上表里的字段 key 两种语言下完全一致。灰色文字是留空字段的占位提示；取值不同于内置默认值的字段会显示已覆盖标记与恢复默认入口；底部保存条只在有改动待保存时出现，因此这几张图里没有它。
 
-它们展示的是同一张表单内联在 bundle 详情页上的样子：拍摄时参数页还没挪到插件行自己的页面上，因此表单周围这层界面比插件今天从那一行 **配置** 入口打开的页面早一步。表单本身——每张卡片、每个字段、标签与提示——没有变化，图库会在下一次宿主重启后重新拍摄。
+它们展示的是这张表单今天所在的位置：**插件** 面板里插件行自己的页面，也就是从那一行 **配置** 入口打开的页面，而不是 bundle 详情页。
 
-**1. SDK 与工具链** —— 表单开头是插件标题、包名与描述，然后是每次 `android_*` 调用最先解析的 SDK 根目录、JDK 主版本与 build-tools 版本，模拟器与设备卡片直到启动超时，以及 API 级别卡片的开头：
+**1. SDK 与工具链** —— 表单从插件行自己的页面开始，开头是插件标题、包名与描述，然后是每次 `android_*` 调用最先解析的 SDK 根目录、JDK 主版本与 build-tools 版本，模拟器与设备卡片直到启动超时，以及 API 级别卡片的开头：
 
-![DSH 插件面板里 bundle 详情页上的 Android 模拟器助手表单：插件标题与描述，接着是 SDK 与工具链卡片里的 Android SDK 根目录、JDK 主版本与 Build-tools 版本，然后是模拟器与设备卡片直到启动超时，以及 API 级别卡片的开头](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-1-sdk-and-toolchain.png)
+![DSH 插件面板里插件行自己页面上的 Android 模拟器助手表单：插件标题与描述，接着是 SDK 与工具链卡片里的 Android SDK 根目录、JDK 主版本与 Build-tools 版本，然后是模拟器与设备卡片直到启动超时，以及 API 级别卡片的开头](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-1-sdk-and-toolchain.png)
 
 **2. 模拟器与设备** —— 表单下滚一个卡片：从 SDK 与工具链卡片标题开始，接着是模拟器与设备卡片——默认 AVD、默认设备序列号、自动启动开关、额外 `emulator` 参数与启动超时——然后是 API 级别卡片与构建卡片的开头：
 
@@ -149,9 +149,9 @@ host 半侧用两个精确 Fetch 路由支撑页面上的按钮：
 
 ![表单继续下滚：模拟器与设备卡片标题，然后是 API 级别与系统镜像卡片里的系统镜像变体、系统镜像 ABI 与默认 minSdk，构建卡片里的 Gradle 构建超时与额外 Gradle 参数，以及输出卡片开头](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-3-api-and-build.png)
 
-**4. 输出目录与检测** —— 截图和构建日志落在哪里，然后是环境检测与探测卡片：支撑页面的两个按钮（对应上面的 Fetch 路由），以及它填充的探测结果——探测到的 SDK 根目录、AVD 目录、AVD 与已安装系统镜像。今天收尾页面的「界面」卡片（以及其中的 **在「设置」中显示** 开关）比这张截图新，因此不在画面里：
+**4. 输出目录与检测** —— 截图和构建日志落在哪里，然后是收尾的「界面」卡片（其中的 **在「设置」中显示** 开关），最后是环境检测与探测卡片：支撑页面的两个按钮（对应上面的 Fetch 路由），以及它填充的探测结果——探测到的 SDK 根目录、AVD 目录、AVD 与已安装系统镜像：
 
-![截到的表单末尾：输出目录与日志卡片里的数据目录、截图目录与默认 logcat 行数，然后是环境检测与探测卡片里的检测环境与刷新设备与 AVD 按钮，以及探测结果里的 SDK 根目录、AVD 目录、AVD 与已安装系统镜像](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-4-output-and-diagnostics.png)
+![截到的表单末尾：输出目录与日志卡片里的数据目录、截图目录与默认 logcat 行数，然后是界面卡片里的在「设置」中显示开关，接着是环境检测与探测卡片里的检测环境与刷新设备与 AVD 按钮，以及探测结果里的 SDK 根目录、AVD 目录、AVD 与已安装系统镜像](https://raw.githubusercontent.com/zhz8888/dsh-android-emulator-helper/main/assets/settings-page-4-output-and-diagnostics.png)
 
 `screenshots.json` 就在仓库里的 `package.json` 旁边按这个顺序列出四张图，插件市场据此展示。
 
