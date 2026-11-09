@@ -442,6 +442,35 @@ export function checkSettingsSectionGated(exported, localeSettings = { en: {}, z
     if (section.entry.locale === undefined) {
       problems.push('the Settings section must declare the dictionary namespace it renders with')
     }
+    // The section renders the same form as the row's page, so its entry has to
+    // inject the same face: the component reads `useAndroidEmulatorSettings`
+    // and the four actions off its props before it draws anything, and an entry
+    // without a face throws there with the type gate none the wiser. The row's
+    // entry is the reference rather than a list of names hard-coded here,
+    // because the two placements must render the one form.
+    const row = byName.get(PLUGIN_PAGE_SLOT)
+    if (row === undefined) {
+      problems.push(`with the switch on the bundle must keep ${JSON.stringify(PLUGIN_PAGE_SLOT)} registered`)
+    } else if (typeof row.entry.inject !== 'function') {
+      problems.push('the row page entry must inject the form face its component reads')
+    } else if (typeof section.entry.inject !== 'function') {
+      problems.push('the Settings section entry must inject the form face its component reads')
+    } else {
+      const rowFace = Object.keys(row.entry.inject() ?? {}).sort()
+      const sectionFace = Object.keys(section.entry.inject() ?? {}).sort()
+      if (rowFace.join(',') !== sectionFace.join(',')) {
+        problems.push(
+          `the Settings section must inject the same form face as the row page (row: [${rowFace.join(', ')}], section: [${sectionFace.join(', ')}])`,
+        )
+      }
+    }
+    // The icon and the form are two registrations; the section must carry the
+    // form, or the Settings dialog would draw the glyph where the page belongs.
+    if (typeof section.component !== 'function') {
+      problems.push('the Settings section registration must pass its component')
+    } else if (section.component === icon.component) {
+      problems.push('the Settings section must render the form, not the rail icon')
+    }
   }
   on.publish(false)
   const after = on.live().map((record) => record.entry.name)
@@ -767,7 +796,7 @@ function main() {
   if (!Array.isArray(exported.inject) || exported.inject.length === 0) {
     fail('the client bundle must export a non-empty inject list')
   }
-  for (const name of ['apply', 'inject', 'NS', 'FIELD_META', 'GROUP_META', 'PLUGIN_SURFACE', 'SETTINGS_SURFACE']) {
+  for (const name of ['apply', 'inject', 'NS', 'FIELD_META', 'GROUP_META', 'PLUGIN_SURFACE', 'SETTINGS_SURFACE', 'FIXED_KEYS']) {
     if (exported[name] === undefined) fail(`the client bundle must export ${name}`)
   }
 
@@ -892,13 +921,23 @@ function main() {
   // every group heading and hint, every field label and hint, every placeholder
   // and every declared option label. The walk uses the client's own field
   // descriptors, because those are what the page renders from.
+  //
+  // The chrome half is the only one of those written by hand at its call sites
+  // rather than derived from a table, so its export is required to be a
+  // non-empty array: substituting `[]` for an export that went missing would
+  // turn this walk into a loop over nothing and leave the page free to render a
+  // raw key with the gate green.
+  const fixedKeys = exported.FIXED_KEYS
+  if (!Array.isArray(fixedKeys) || fixedKeys.length === 0) {
+    fail('the client bundle must export a non-empty FIXED_KEYS list: the page-chrome keys are what the dictionary coverage walk checks')
+  }
   failures.push(
     ...checkDictionaryCoverage(
       clientGroups.map((group) => ({
         id: group.id,
         fields: group.fields.map((key) => clientFieldsByKey.get(key) ?? { key }),
       })),
-      exported.FIXED_KEYS ?? [],
+      Array.isArray(fixedKeys) ? fixedKeys : [],
       localeSettings,
     ),
   )
