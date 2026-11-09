@@ -1,6 +1,6 @@
 {
   "name": "@zhz8888/dsh-android-emulator-helper",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "icon": "./android-emulator.png",
   "description": "Android SDK, emulator and device management plus Kotlin/Compose build-and-run tools for DeepSeek Harness, ported from the official ZCode android-emulator plugin, with its parameter page on the plugin row's own page in the Plugins panel and, when the Show in Settings switch is on, in the Settings dialog.",
   "keywords": [
