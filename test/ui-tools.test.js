@@ -97,7 +97,7 @@ const NODE_RECORD_KEYS = [
  *   of a fake `emulator` to install beside `adb`, whether the device
  *   reports a `uiautomator` binary to `android_ui_status` (defaults to yes),
  *   and whether the device-side dump behaves as the singleton it is.
- * @returns {Promise<{rt: object, stateDir: string, argv: () => Promise<string[]>, setScreen: (xml: string) => Promise<void>, failDump: (fails: boolean) => Promise<void>, errorDump: (fails: boolean) => Promise<void>, dumpOverlaps: () => Promise<string>}>} the harness.
+ * @returns {Promise<{rt: object, stateDir: string, argv: () => Promise<string[]>, setScreen: (xml: string) => Promise<void>, failDump: (fails: boolean) => Promise<void>, errorDump: (fails: boolean) => Promise<void>, dumpOverlaps: () => Promise<string>, displaceDump: (displaced: boolean) => Promise<void>}>} the harness.
  */
 async function fakeAdb(options = {}) {
   const binDir = await mkdtemp(path.join(tmpdir(), 'aemh-ui-bin-'))
@@ -215,6 +215,15 @@ async function fakeAdb(options = {}) {
     // A device-side SIGKILL reaches the caller as exit 137 with no
     // timeout involved; it is still a failed dump.
     { ifFile: state('dump-killed'), then: [{ exit: 137 }] },
+    // A dump that ANOTHER dump ended, exactly once: the device kills this
+    // attempt with the same 137 signature, and the marker consumes itself so
+    // the caller's retry finds the device to itself. It is a marker of its own
+    // because `dump-killed` has to keep killing every attempt — its test
+    // asserts that the call fails.
+    {
+      ifContentEquals: [state('dump-displaced'), 'once'],
+      then: [{ write: [state('dump-displaced'), 'used'] }, { exit: 137 }],
+    },
     // One branch per device, so a dump and its read-back stay on that device.
     ...devices.map(({ serial, files }) => ({
       ifArg: [2, serial],
@@ -359,6 +368,19 @@ async function fakeAdb(options = {}) {
     killDump: async (killed) => {
       if (killed) await writeFile(path.join(stateDir, 'dump-killed'), '', 'utf8')
       else await rm(path.join(stateDir, 'dump-killed'), { force: true })
+    },
+    /**
+     * Make the NEXT dump be displaced by another dump, and only that one.
+     *
+     * The device-side dump is a singleton, so a second dump ends the running
+     * one and the loser sees adb exit 137 with no output. The marker is
+     * consumed by the attempt that reads it, so the retry that follows finds
+     * the device free — the recovery the provider promises.
+     */
+    displaceDump: async (displaced) => {
+      const marker = path.join(stateDir, 'dump-displaced')
+      if (displaced) await writeFile(marker, 'once', 'utf8')
+      else await rm(marker, { force: true })
     },
     /**
      * The dumps another dump ended, as the singleton emulation recorded them.
@@ -721,6 +743,28 @@ test('a dump killed by a signal is reported as a dump failure, not as adb dying'
   })
 })
 
+test('a dump displaced by another dump is retried once and then succeeds', { timeout: 30_000 }, async () => {
+  // The device-side dump is a singleton, so a dump can be ended by another one
+  // and the loser sees adb exit 137 with no output. That says nothing about the
+  // screen — the screen is fine — so the provider tries exactly once more, and
+  // by then the dump that displaced it has finished. Without the retry this
+  // call rejects with the blank-screen message for a screen that was never
+  // blank.
+  const harness = await fakeAdb({ screen: SCREEN })
+  await harness.displaceDump(true)
+  const started = Date.now()
+  const report = await describe(harness.rt, { serial: 'emulator-5554' })
+  // The second attempt published the screen the first one never wrote.
+  assert.equal(report.device.serial, 'emulator-5554')
+  assert.equal(report.elements.length, 7)
+  // Bounded: one retry, not a loop.
+  assert.ok(Date.now() - started < 20_000, 'a displaced dump must be recovered by one retry')
+  // Two dumps ran for the one call: the displaced attempt and the retry that
+  // recovered. A provider that gave up on the 137 leaves one.
+  const dumps = (await harness.argv()).filter((line) => line.includes('[uiautomator dump'))
+  assert.equal(dumps.length, 2, 'the retry must be exactly one more dump')
+})
+
 test('two concurrent describes of one device both succeed', async () => {
   // The device-side `uiautomator dump` is a SINGLETON: while one dump runs, a
   // second one on the same device ends it, and the loser sees adb exit 137
@@ -952,19 +996,33 @@ test('type text quotes shell metacharacters and single quotes', async () => {
   ])
 })
 
-test('type text refuses over-long text before sending anything to the device', async () => {
+test('type text refuses over-long text before the device is contacted', async () => {
   const { rt, argv } = await fakeAdb({ screen: SCREEN })
   await assert.rejects(() => typeText(rt, { text: 'x'.repeat(1001), serial: 'emulator-5554' }), /too long/)
   // No `input text` is sent, so the device never receives a truncated
-  // replacement for the text the caller asked for. The device is still
-  // contacted first: `ensureDevice` runs before the length check, so the
-  // refusal happens after the handshake, not before it.
+  // replacement for the text the caller asked for.
   const sent = await argv()
   assert.deepEqual(
     sent.filter((line) => line.includes('input text')),
     [],
   )
-  assert.ok(sent.some((line) => line.includes('[devices] [-l]')), 'the device handshake already happened')
+  // And no device was looked up either: a text this tool cannot type must not
+  // start an emulator to carry it. This is the same rule `swipe` follows for
+  // its duration and the `applicationId`/`url` tools follow for theirs — what
+  // the schema cannot express, the provider refuses before it touches the
+  // device.
+  assert.deepEqual(sent, [], 'the device must not be contacted for text that is refused')
+})
+
+test('keyevent refuses an unknown key before the device is contacted', async () => {
+  const { rt, argv } = await fakeAdb({ screen: SCREEN })
+  await assert.rejects(
+    () => keyevent(rt, { key: 'VOLUME_UP', serial: 'emulator-5554' }),
+    /Unsupported Android key: VOLUME_UP/,
+  )
+  // Same rule as `typeText`: the key is mapped to its keycode, and a name with
+  // no keycode is refused, before any device is resolved or started.
+  assert.deepEqual(await argv(), [], 'the device must not be contacted for a key that is refused')
 })
 
 test('type text forwards non-ASCII text unchanged', async () => {
