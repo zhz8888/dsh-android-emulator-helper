@@ -950,6 +950,31 @@ test('create_avd answers avdmanager down the "no" path and surfaces its refusal'
   assert.equal(await readFile(paths.stdinFile, 'utf8'), 'no\n')
 })
 
+test('create_avd names the installed images instead of forwarding avdmanager', async () => {
+  // Observed live on this machine: the settings' default image
+  // (`system-images;android-35;default;arm64-v8a`) is not installed, and the
+  // real avdmanager answered "Package path is not valid. Valid system image
+  // paths are: … null" — a message that names no way forward and ends in a
+  // stray "null". The SDK tree already says which images exist, so the refusal
+  // names the requested image, the installed ones and the setting that picks
+  // one, and avdmanager is never spawned.
+  const { rt, paths } = await toolchain({ avdmanager: (p) => [{ record: p.argvFile }] })
+  const sdk = path.join(rt.cwd, 'sdk')
+  await mkdir(path.join(sdk, 'system-images', 'android-37.2', 'google_apis_playstore_ps16k', 'arm64-v8a'), {
+    recursive: true,
+  })
+  const pinned = createRuntime({
+    config: { ...rt.config, sdkPath: { get: () => sdk } },
+    env: rt.env,
+    cwd: rt.cwd,
+  })
+  await assert.rejects(
+    () => createAvd(pinned, { name: 'probe_avd', packageId: 'system-images;android-35;default;arm64-v8a' }),
+    /System image "system-images;android-35;default;arm64-v8a" is not installed\. Installed system images: system-images;android-37\.2;google_apis_playstore_ps16k;arm64-v8a/,
+  )
+  assert.deepEqual(await argvs(paths.argvFile), [])
+})
+
 test('create_avd refuses an invalid AVD name before spawning avdmanager', async () => {
   const { rt, paths } = await toolchain({ avdmanager: (p) => [{ record: p.argvFile }] })
   await assert.rejects(() => createAvd(rt, { name: 'bad;name' }), /Invalid Android AVD name/)
