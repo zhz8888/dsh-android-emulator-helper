@@ -191,14 +191,21 @@ test('a configured SDK path is used verbatim, even when it does not exist', asyn
 })
 
 test('a tilde in the SDK path is expanded', async (t) => {
+  // The setting is what carries the tilde: the page's own placeholder for a
+  // directory is `~/.dsh/android-emulator-helper`, so a user who types the
+  // suggested value literally must not get a directory named `~` created
+  // inside their project. A runtime that only sets HOME exercises nothing —
+  // the default candidates are built from `os.homedir()` and never contain a
+  // tilde at all.
   const dir = await scratch(t)
   const home = path.join(dir, 'home')
   await mkdir(home, { recursive: true })
-  const rt = runtime({ cwd: dir, env: { HOME: home, USERPROFILE: home } })
+  const rt = runtime({ cwd: dir, env: { HOME: home, USERPROFILE: home }, settings: { sdkPath: '~/Android/Sdk' } })
   const roots = await sdkRoots(rt)
+  assert.equal(roots[0], path.join(home, 'Android', 'Sdk'))
   assert.ok(
-    roots.some((item) => item.startsWith(home) && !item.includes('~')),
-    `expected an expanded home in ${roots.join(', ')}`,
+    roots.every((item) => !item.includes('~')),
+    `expected no unexpanded tilde in ${roots.join(', ')}`,
   )
 })
 
