@@ -69,6 +69,14 @@ const READY_DEVICES = [
  */
 const DUMP_OVERLAP_WINDOW_S = 1
 
+/**
+ * How long a rendezvous dump waits for the other device's dump to start.
+ *
+ * Long enough that a loaded machine still overlaps, short enough that a
+ * serialized implementation fails the test in seconds rather than minutes.
+ */
+const RENDEZVOUS_TIMEOUT_S = 5
+
 const NODE_RECORD_KEYS = [
   'index',
   'text',
@@ -173,6 +181,19 @@ async function fakeAdb(options = {}) {
     { append: [state('dump-overlaps'), '${DUMP_PATH}'] },
     { exit: 137 },
   ]
+  // The rendezvous variant: the dump announces itself and then waits for the
+  // other device's announcement, so two dumps on two devices are provably in
+  // flight together. A serialized implementation waits out the deadline and
+  // the test's own assertion then fails on the command log, which is the
+  // failure it is meant to report.
+  const rendezvous = (files, serial) => [
+    { write: [files.owner, '${DUMP_PATH}'] },
+    { append: [state('dump-started'), `${serial}\n`] },
+    { waitFor: { file: state('dump-started'), timeout: RENDEZVOUS_TIMEOUT_S } },
+    { ifContentEquals: [files.owner, '${DUMP_PATH}'], then: publish(files) },
+    { append: [state('dump-overlaps'), '${DUMP_PATH}'] },
+    { exit: 137 },
+  ]
 
   // The read-back and the cleanup are per device as well, for the same reason
   // the dump is.
@@ -227,7 +248,11 @@ async function fakeAdb(options = {}) {
     // One branch per device, so a dump and its read-back stay on that device.
     ...devices.map(({ serial, files }) => ({
       ifArg: [2, serial],
-      then: options.singletonDump ? singleton(files) : publish(files),
+      then: options.rendezvous
+        ? rendezvous(files, serial)
+        : options.singletonDump
+          ? singleton(files)
+          : publish(files),
     })),
     // A device the fake does not know about still gets a dump, on the shared
     // state.
@@ -799,9 +824,18 @@ test('two concurrent describes of one device both succeed', async () => {
 test('describes of two different devices still run in parallel', async () => {
   // The lock is per device and not global: a dump on one emulator must not
   // wait for a dump on another one.
+  //
+  // The overlap is proven by a rendezvous rather than by a sleep window. Each
+  // dump announces itself and then waits for the other one to announce itself,
+  // so a serialized implementation cannot pass: it would wait out the deadline
+  // and the second dump would never start before the first one's cleanup. A
+  // fixed window was the earlier shape and it flaked — on a loaded machine the
+  // two child processes did not always start within it, and the test then
+  // reported a serialization that was not there.
   const harness = await fakeAdb({
     screen: SCREEN,
     singletonDump: true,
+    rendezvous: true,
     devices: [
       'List of devices attached',
       'emulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1',
