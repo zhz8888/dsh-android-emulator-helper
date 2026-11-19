@@ -18,7 +18,7 @@ on purpose — the browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 389 tests (379 pass, 0 fail, 10 skipped on Windows): unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 390 tests (378 pass, 0 fail, 12 skipped on macOS): unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -624,8 +624,8 @@ points at a stale release whose types do not match the runtime API.
 `pnpm run check` is the definition of done: the unit and render suites, then the
 consistency gate, then the mount, then the type gate. `pnpm test` alone is not
 enough — it cannot see the host↔client drift the gate exists for, and it cannot
-see a type error at all. The suite is 389 tests: 379 pass, 0 fail, and 10 are
-skipped on a Windows host (enumerated below).
+see a type error at all. The suite is 390 tests: 378 pass, 0 fail, and 12 are
+skipped on a macOS host (enumerated below).
 
 | Layer | Command | What it proves |
 |---|---|---|
@@ -682,20 +682,24 @@ Three consequences worth knowing:
   would list that machine's AVDs in every suite that starts an emulator. Point
   it at the throwaway tree, as the fake-tool runtimes do.
 
-Ten of them are skipped on a Windows host, and each skip carries its reason
-next to it. Seven are the ones whose contract **is** POSIX: the SIGTERM
-trap-and-escalate cases (the capture that ignores SIGTERM, the child that
-ignores it, and `runBytes()`), a child killed by a signal (Windows has no signal
-deaths), a grandchild holding a pipe open, a non-batch tool spawned directly,
-and a directory symlink fixture (which needs `SeCreateSymbolicLinkPrivilege`).
-Three more are environmental: the seed-table check, which skips when no
-installed DSH web frontend can be located on the platform (`DSH_WEB_FRONTEND`
-points it at one the default search cannot see); the wedged-dump case, whose
-hanging fake is a grandchild of the `.cmd` launcher, `run()` terminates only the
-launcher, and the survivor holds the runner's stdout pipe open; and the
-UI-backend case, which expects no `adb` to be reachable and skips itself on a
-machine that has a real SDK, because the host resolves one inside an installed
-SDK.
+Twelve of them are skipped on a macOS host, and each skip carries its reason
+next to it. Ten are the ones whose contract **is** Windows: the `.bat`/`.cmd`
+routing cases (a batch file through `cmd.exe` with every token quoted, a
+Windows executable spawned directly, a `.bat` in a directory with a space, a
+`.bat` whose path contains `&`, metacharacters and a lone percent sign reaching
+the batch file unchanged, an argument a batch file cannot carry, a `.bat`
+reporting its own exit code, and the `cmd.exe` fallback), plus the timed-out
+start that has to kill the wrapped emulator rather than only its launcher —
+which is a `.cmd` grandchild on Windows and a direct child on POSIX. Two more
+are environmental: the seed-table check, which skips when no installed DSH web
+frontend can be located on the platform (`DSH_WEB_FRONTEND` points it at one
+the default search cannot see); and the UI-backend case, which expects no `adb`
+to be reachable and skips itself on a machine that has a real SDK, because the
+host resolves one inside an installed SDK.
+
+The POSIX-only cases — the SIGTERM trap-and-escalate pair, a child killed by a
+signal, a grandchild holding a pipe open, a non-batch tool spawned directly and
+the directory symlink fixture — run on macOS and are skipped on Windows.
 
 Two limits are accepted rather than worked around:
 
