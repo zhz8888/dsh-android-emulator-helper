@@ -2,9 +2,9 @@
 import process from 'node:process'
 import { FIELD_GROUPS, FIELD_KEYS, FIELDS, SETTINGS_NAMESPACE } from '../lib/settings.js'
 import { ROOT, loadBundle } from '../test/helpers/load-bundle.mjs'
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import * as hostIndex from '../lib/index.js'
 
 /**
@@ -1088,6 +1088,33 @@ function report(summary) {
 // Only when this file is the entry point: the test suite imports the checks
 // above, and running the whole gate as an import side effect would exit the
 // test process on the first failure.
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+//
+// The comparison is made on resolved paths rather than on the URL strings.
+// macOS resolves the temporary directory to `/private/var/...` while the path
+// the caller typed is `/var/...`, so `import.meta.url` (already resolved by
+// the loader) and `pathToFileURL(process.argv[1])` (not resolved) name the
+// same file with two different strings. A string comparison then answers "not
+// the entry point" and the gate exits 0 having printed nothing at all — which
+// is exactly how a copy of the repository under `$TMPDIR` reported success
+// without running a single check.
+if (process.argv[1] !== undefined && isEntryPoint(process.argv[1])) {
   main()
+}
+
+/**
+ * Whether one path names this module, comparing resolved filesystem paths.
+ *
+ * @param {string} candidate - the path the process was started with.
+ * @returns {boolean} true when it is this file.
+ */
+function isEntryPoint(candidate) {
+  const self = fileURLToPath(import.meta.url)
+  try {
+    return realpathSync(self) === realpathSync(candidate)
+  } catch {
+    // A path that cannot be resolved (a deleted file, a permission error) is
+    // compared as text, which is the old behaviour and still correct for the
+    // ordinary case.
+    return self === candidate
+  }
 }
