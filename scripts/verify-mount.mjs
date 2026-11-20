@@ -13,15 +13,11 @@ import { FIELD_KEYS } from '../lib/settings.js'
 const ROOT = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
 
 /**
- * Mount the plugin on a REAL Cordis context with the REAL tool registry, then
- * dispatch through it.
+ * Mount the plugin on a real Cordis context with the real registry and dispatch
+ * through it (via `pnpm run verify:mount`).
  *
- * The unit tests use a hand-written context stand-in, which pins the plugin's
- * own behaviour but not the harness contract. This harness closes that gap: the
- * registry validates the argument and result schemas for real, the fiber owns
- * `tools.register`, and disposal is exercised through the actual lifecycle.
- *
- * Run with `pnpm run verify:mount`.
+ * Closes the unit tests' stand-in gap: the registry validates schemas for real and
+ * disposal runs through the actual fiber lifecycle.
  */
 
 let failures = 0
@@ -205,10 +201,8 @@ let call = 0
 /**
  * Dispatch one call through the real registry and return its settled result.
  *
- * DSH 0.2.2 changed `tools.execute` from a single call to a batch: it takes
- * `{ calls: [...] }` and answers `{ results: [{ callId, result }] }`. The
- * executor is what owns that shape, so this helper is the one place the gate
- * adapts to it — every assertion below still reads a single tool's result.
+ * DSH 0.2.2 made `tools.execute` a batch (`{calls:[...]} → {results:[...]}`); the
+ * executor owns that shape, so this is the one place the gate adapts to it.
  *
  * @param {{name: string, arguments: Record<string, unknown>, callId: string}} request - the call to dispatch.
  * @returns {Promise<Record<string, any>>} the settled result for that call.

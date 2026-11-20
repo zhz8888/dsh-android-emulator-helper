@@ -14,17 +14,10 @@ import { writeFakeTool } from './helpers/fake-tool.mjs'
 import { preflightOk } from '../lib/providers/preflight.js'
 
 /**
- * Device-facing tool behaviour, pinned without a device.
- *
- * Everything asserted here was first observed by driving the real `android_*`
- * tools against a live Pixel_10 emulator (`emulator-5554`, API 37), then
- * reduced to a hermetic test so the contract survives on a machine with no SDK
- * and no emulator. A fake `adb`, `emulator` and `avdmanager` on `PATH` drive the
- * real providers — the technique `emulator-start.test.js` already uses.
- *
- * Three groups are worth calling out because they encode live defects:
- * the preflight verdict, the AVD fallback in `pickAvd`, and the treatment of a
- * newly started emulator that never leaves the `unauthorized` state.
+ * Pin device-facing tool behaviour without a device: fake `adb`, `emulator` and
+ * `avdmanager` on `PATH` drive the real providers. The cases were first observed
+ * against a live emulator, then made hermetic; the preflight verdict, the `pickAvd`
+ * fallback and a stuck `unauthorized` boot encode live defects.
  */
 
 /** The eight PNG signature bytes, as `xxd` showed them for a real capture. */
@@ -40,11 +33,8 @@ const USB_DEVICE = 'R58M12ABCDE           device usb:336592896X product:oriole m
 const EMULATOR_DEVICE = 'emulator-5554          device product:sdk model:sdk device:emu transport_id:1'
 
 /**
- * Read the argv records a fake wrote.
- *
- * Each invocation is one line of `|`-separated arguments with a trailing
- * separator, which is what the `record` step of `helpers/fake-tool.mjs`
- * produces on both platforms.
+ * Read the argv records a fake wrote: one line of `|`-joined arguments per
+ * invocation, the form the `record` step produces on both platforms.
  *
  * @param {string} file - absolute record path.
  * @returns {Promise<string[][]>} one argv per invocation.
@@ -68,11 +58,9 @@ async function argvWith(file, needle) {
 }
 
 /**
- * Build the steps of a fake `adb`.
- *
- * The steps are rendered for the host by `helpers/fake-tool.mjs` — a shell
- * script on POSIX, a Node step script behind a `.cmd` launcher on Windows —
- * so the same fake drives the real providers on both.
+ * Build the steps of a fake `adb`, rendered for the host by `helpers/fake-tool.mjs`
+ * (a POSIX shell script, or a Node step script behind a `.cmd` on Windows) so the
+ * same fake drives the real providers on both platforms.
  *
  * @param {object} options - what the fake answers.
  * @param {string} options.argvFile - where to record invocations.
@@ -163,12 +151,9 @@ function adbBody({
 }
 
 /**
- * Build a runtime whose PATH resolves the SDK tools to fakes, in a throwaway tree.
- *
- * `cwd` is a temp directory rather than the session workspace, so the path
- * tests exercise resolution without writing into the repository. Each fake is
- * declared as a function of this run's paths, so a body can reference the argv
- * record, the spawn marker and the like without string surgery afterwards.
+ * Build a runtime whose `PATH` resolves the SDK tools to fakes, in a throwaway
+ * tree: `cwd` is a temp directory so path tests never write into the repository,
+ * and each fake is a function of this run's paths.
  *
  * @param {{adb?: Function|object[], emulator?: Function|object[], avdmanager?: Function|object[], config?: object, env?: object}} [options] - fakes and overrides.
  * @returns {Promise<{rt: object, paths: object}>} the runtime and its directories.

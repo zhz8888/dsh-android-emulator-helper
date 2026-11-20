@@ -22,28 +22,17 @@ import {
 } from '../lib/providers/ui.js'
 
 /**
- * UI automation provider tests: the pure parsers, plus the exact `adb` command
- * every action builds.
- *
- * The UI tools are the only ones whose contract is a *string of shell words*
- * handed to the device, so a unit test that stops at "it returned
- * `{tapped: true}`" proves nothing: rounding, quoting and the duration argument
- * all happen on the way to `adb`. A fake `adb` on `PATH` (the same technique
- * `emulator-start.test.js` uses for `emulator`) records its own argv, which is
- * what the assertions below read.
- *
- * Three assertions deliberately characterize behaviour that the real-device
- * sweep found surprising or wrong: the flattened node record has no `package`
- * (see `NODE_RECORD_KEYS`), `swipe` never reports the duration it used, and a
- * failed `uiautomator dump` silently serves the previous screen. They are
- * pinned so that changing them is a conscious decision, not an accident.
+ * Pin the pure UI parsers and the exact `adb` shell words each action builds: a
+ * result-only assertion proves nothing when rounding, quoting and duration are
+ * on the way to `adb`. The recorded argv is what is asserted. Three surprises
+ * found on a real device are characterized deliberately: no `package` in a
+ * flattened node, `swipe` not reporting its duration, and a failed dump serving
+ * the previous screen.
  */
 
 /**
- * The default `adb devices -l` transcript: one healthy emulator.
- *
- * A serial of `emulator-5554` matters here: it is what the UI providers are
- * given, and `pickDevice` rejects a serial that is absent from this list.
+ * The default `adb devices -l` transcript: one emulator at `emulator-5554`, the
+ * serial the UI providers are given and `pickDevice` requires to be present.
  */
 const READY_DEVICES = [
   'List of devices attached',
@@ -52,28 +41,21 @@ const READY_DEVICES = [
 ].join('\n')
 
 /**
- * The exact own-property shape of one flattened element, in insertion order.
- *
- * `package`, `scrollable`, `checked`, `focused`, `password` and `hint` are
- * present in the raw UI Automator XML but are dropped here, so a caller that
- * needs to know which app owns a node, or whether a container can scroll,
- * cannot get that from this record.
+ * The exact own-property shape and order of a flattened element; `package`,
+ * `scrollable`, `checked`, `focused`, `password` and `hint` are present in the
+ * XML but dropped, so callers cannot learn the owning app or scrollability.
  */
 /**
- * How long a dump claims the device in the singleton emulation.
- *
- * The claim has to outlive the start-up jitter of a concurrent dump's fake
- * process, or the second dump would claim the device after the first one has
- * already checked its claim — and the emulation would never notice the two
- * dumps overlapping.
+ * How long a dump claims the device in the singleton emulation — long enough
+ * to outlive a concurrent fake's start-up jitter, or the overlap would never be
+ * observed.
  */
 const DUMP_OVERLAP_WINDOW_S = 1
 
 /**
- * How long a rendezvous dump waits for the other device's dump to start.
- *
- * Long enough that a loaded machine still overlaps, short enough that a
- * serialized implementation fails the test in seconds rather than minutes.
+ * How long a rendezvous dump waits for the other device's dump: long enough to
+ * overlap on a loaded machine, short enough that a serialized implementation
+ * fails in seconds.
  */
 const RENDEZVOUS_TIMEOUT_S = 5
 
@@ -89,16 +71,11 @@ const NODE_RECORD_KEYS = [
 ]
 
 /**
- * Install an executable fake `adb` that answers the calls the UI providers make.
- *
- * The script records every invocation, one `ARGV [a] [b] …` line per call, so a
- * test can assert the precise device-shell command instead of inferring it.
- * `screen.xml` is what a *successful* `uiautomator dump` writes; `window.xml` is
- * the device-side file `cat` reads. Whatever dump path the provider passes is
- * mapped onto those two files, which is the only part of the dump not under test.
- *
- * The fake is rendered for the host by `helpers/fake-tool.mjs`: a shell script
- * on POSIX, a Node step script behind a `.cmd` launcher on Windows.
+ * Install a fake `adb` that records each invocation as `ARGV [a] [b] …` so the
+ * exact device command can be asserted. `screen.xml` is what a successful dump
+ * writes, `window.xml` is what `cat` reads, and the provider's dump path is
+ * mapped onto those two — the one part not under test. Rendered per platform by
+ * `helpers/fake-tool.mjs`.
  *
  * @param {{screen?: string, devices?: string, devicesAfterStart?: string, emulatorSteps?: object[], uiAutomator?: boolean, singletonDump?: boolean}} [options]
  *   - the XML the next dump should publish, the device transcripts, the steps
@@ -395,12 +372,9 @@ async function fakeAdb(options = {}) {
       else await rm(path.join(stateDir, 'dump-killed'), { force: true })
     },
     /**
-     * Make the NEXT dump be displaced by another dump, and only that one.
-     *
-     * The device-side dump is a singleton, so a second dump ends the running
-     * one and the loser sees adb exit 137 with no output. The marker is
-     * consumed by the attempt that reads it, so the retry that follows finds
-     * the device free — the recovery the provider promises.
+     * Make the next dump be displaced (and only that one): the device-side dump is a
+     * singleton, so a second dump ends the first with adb exit 137. The marker is
+     * consumed by the attempt that reads it, so the retry finds the device free.
      */
     displaceDump: async (displaced) => {
       const marker = path.join(stateDir, 'dump-displaced')
@@ -420,18 +394,11 @@ async function fakeAdb(options = {}) {
 }
 
 /**
- * A runtime whose environment cannot resolve an `adb` at all.
- *
- * `sdkPath` points at an empty directory, so the SDK probe finds nothing, and
- * `PATH` is reduced to that same empty directory, so the platform's own
- * `which`/`where` answer nothing either. `android_ui_status` must report the
- * missing tool instead of throwing; the caller then asks the caller to fix the
- * SDK rather than mis-reading the failure as "no device".
- *
- * The one thing this cannot switch off is the plugin's last-resort SDK scan: on
- * a machine that has an SDK installed the scan still finds its `adb`, which is
- * the right behaviour for the plugin and the reason the test checks for it
- * before asserting.
+ * A runtime that cannot resolve an `adb` at all: `sdkPath` and `PATH` both point
+ * at an empty directory, so the SDK probe and `which`/`where` answer nothing
+ * and `android_ui_status` must report the missing tool. The plugin's last-resort
+ * SDK scan still finds a real SDK's `adb` on such a machine, which the test
+ * checks before asserting.
  *
  * @returns {Promise<object>} the runtime.
  */

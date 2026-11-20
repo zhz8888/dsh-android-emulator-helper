@@ -5,29 +5,19 @@ import { test } from 'node:test'
 import { brief, callTimeoutMs, run, runBytes } from '../lib/util/run.js'
 
 /**
- * Child-process hardening for the one helper every provider uses.
- *
- * Two failure modes are invisible in an ordinary regression test: a stream
- * error on `child.stdin` is not an error on the child, and `close` waits for
- * every pipe to drain, so a grandchild that inherited stdout can keep a command
- * pending past its timeout. Both are exercised here with real shells.
+ * Pin child-process hardening on the helper every provider uses: a stream error
+ * on `child.stdin` is not an error on the child, and `close` waits for every
+ * inherited pipe to drain, so a grandchild holding stdout can outlive the
+ * timeout. Both are exercised with real shells.
  */
 
 const POSIX = process.platform !== 'win32'
 
 /**
- * The Windows PowerShell the portable tests prefer: `pwsh`, PowerShell 7.
- *
- * `pwsh` is a separate download, not part of Windows 10/11, so the project
- * treats it as preferred-but-not-required: on Windows the shell is `pwsh` when
- * it is installed and `cmd.exe` when it is not. The in-box Windows PowerShell
- * 5.1 (`powershell.exe`) is never started. It is a different parser and a
- * different encoding stack, and a test that silently fell back to it would pin
- * behaviour the project does not support. `cmd.exe` is present on every
- * Windows, so the portable cases still run on a stock machine.
- *
- * The probe is exported so the fallback can be pinned without a machine that
- * lacks PowerShell 7.
+ * Probe for PowerShell 7 (`pwsh`), the Windows shell the portable tests prefer:
+ * it is optional, so Windows uses `pwsh` when installed and `cmd.exe` otherwise,
+ * and never starts `powershell.exe` (a different parser and encoding stack). The
+ * probe is exported so the fallback can be pinned without a machine lacking 7.
  *
  * @param {{platform?: NodeJS.Platform, env?: NodeJS.ProcessEnv, exists?: (candidate: string) => boolean}} [options]
  *   - the host to probe; every field is injectable for the test below.
@@ -47,12 +37,9 @@ export function powershell7Program({ platform = process.platform, env = process.
 }
 
 /**
- * The argv that runs `command` in this platform's shell.
- *
- * POSIX uses `/bin/sh`. On Windows `pwsh` (PowerShell 7) is preferred and
- * `cmd.exe /d /s /c` is the final fallback; `powershell.exe` is never started.
- * The command text has to be valid in whichever shell answers — `exit 0` is,
- * and that is what the portable cases below use.
+ * The argv that runs `command` in this platform's shell: `/bin/sh` on POSIX,
+ * `pwsh` (preferred) or `cmd.exe /d /s /c` (final fallback) on Windows, never
+ * `powershell.exe`. The command text must be valid in whichever shell answers.
  *
  * @param {string} command - the script to run.
  * @param {{platform?: NodeJS.Platform, pwsh?: string | null}} [options]
@@ -143,12 +130,9 @@ test('the platform shell these tests use can actually start', async () => {
 })
 
 /**
- * The POSIX script that writes the eight PNG signature bytes on stdout.
- *
- * `cmd.exe` has no byte-exact primitive, so on Windows the bytes are written by
- * the Node that is already running the suite (see the `runBytes` case below)
- * rather than by a shell. That keeps the case runnable on a stock Windows and
- * leaves the `exit 0` cases to exercise the cmd.exe fallback.
+ * The POSIX script that writes the eight PNG signature bytes. `cmd.exe` has no
+ * byte-exact primitive, so Windows uses the already-running Node instead
+ * (see `runBytes`), keeping the case runnable on a stock machine.
  */
 const PRINT_PNG = POSIX ? "printf '\\211PNG\\r\\n\\032\\n'" : undefined
 

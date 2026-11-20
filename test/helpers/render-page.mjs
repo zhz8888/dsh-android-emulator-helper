@@ -5,29 +5,13 @@ import * as primitives from './primitives-double.mjs'
 import { loadBundle, pageGlobals } from './load-bundle.mjs'
 
 /**
- * Render the plugin's configuration page and print a JSON report.
- *
- * React is real (`react-dom/server`, so hooks and the element tree are the real
- * thing); the primitives are the double documented in `primitives-double.mjs`,
- * because the shipped ones are a browser bundler input. Run through
- * `test/client-render.test.js`.
- *
- * The fake services validate the namespace they are called with: a client that
- * bound the wrong namespace used to satisfy every assertion here, because the
- * fake answered any name with the same form and dictionary.
- *
- * The fake host is also where the optional Settings entry is observed: its live
- * value can be published, so one mount can show the switch off, the
- * switched-on registrations, and the disposal that follows a switch-off. That
- * is the only way to prove the registration is live rather than decided once
- * at load time.
- *
- * The page's copy is not in the bundle: the host half publishes `locale/en.json`
- * and `locale/zh.json` as a page-initialization global, which the web server
- * renders into `index.html` ahead of the bundle. This script installs the same
- * global from those same two files before evaluating the bundle, so what it
- * renders is the copy a real page renders — and a key missing from either file
- * shows up here as a raw key in the markup rather than passing silently.
+ * Render the plugin's configuration page and print a JSON report. React is real
+ * (`react-dom/server`); the primitives are the documented double, and the fake
+ * services validate the namespace they are called with — a wrong-namespace
+ * client used to pass every assertion. The fake host also publishes live values
+ * to prove the optional Settings entry is registered and disposed at run time,
+ * and installs the locale global from the same two files the host reads so a
+ * missing key surfaces as raw markup.
  */
 
 /** The namespace the page must bind to (the patch row id). */
@@ -109,7 +93,8 @@ function fakeConfigForm(options = {}) {
 }
 
 /**
- * The Cordis-like browser context the bundle's `apply` expects.
+ * The Cordis-like browser context `apply` expects: `served: false` models a host
+ * that does not serve the namespace, so `whileServed` never calls back.
  *
  * @param {{served?: boolean, status?: string, writable?: boolean}} [options] - `served: false`
  *   models a host that does not serve the settings namespace: `whileServed` then
@@ -220,11 +205,10 @@ function mount(options = {}) {
 }
 
 /**
- * The registration one slot name was made through.
- *
- * A mount makes more than one: the plugin page always, and the two Settings
- * entries while the page's switch is on. Looking the plugin page up by its slot
- * name is what keeps the props of one from being rendered with another's face.
+ * The registration made through one slot name. A mount makes several — the
+ * plugin page always, the two Settings entries while the switch is on — so
+ * looking up by name keeps one entry's props from being rendered with another's
+ * face.
  *
  * @param {{registered: object}} host - the mount.
  * @param {string} [name] - the slot name to find.
@@ -236,10 +220,9 @@ function registrationFor(host, name = PLUGIN_PAGE_SLOT) {
 
 /**
  * Project an `inject()` face into component props the way the slot renderer
- * does: an entry in `hooks` named `foo` becomes a `useFoo(selector)` prop, and
- * the rest of the face is spread through as business props. The real renderer
- * builds those hooks on `useSyncExternalStore`; a server render observes one
- * snapshot, so reading it directly is equivalent here.
+ * does: a `hooks.foo` entry becomes a `useFoo(selector)` prop and the rest are
+ * business props. Reading the snapshot directly equals the renderer's
+ * `useSyncExternalStore` for a server render.
  *
  * @param {object} face - the injected face.
  * @returns {object} the props the slot renderer composes.
@@ -256,7 +239,8 @@ function faceToProps(face) {
 }
 
 /**
- * The props one registered component is rendered with.
+ * The props one registered component is rendered with, for a given slot name
+ * and view (`page` unless the summary is wanted).
  *
  * @param {{ctx: object, registered: object}} host - the mount.
  * @param {string} [name] - the slot name whose entry is rendered.

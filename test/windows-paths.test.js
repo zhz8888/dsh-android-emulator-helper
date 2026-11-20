@@ -105,12 +105,9 @@ test('the SDK a project records in local.properties is a candidate', async (t) =
 // ---------------------------------------------------------------------------
 
 /**
- * Write one `android.sdk.path.xml` below a scratch `%APPDATA%`, as Studio does.
- *
- * The wrapper is the real file's: the option lives under a component named
- * `AndroidSdkPathStore`, and the path is the option's `value`. The option line
- * is a parameter because the interesting cases are the ones where it does not
- * name a usable SDK.
+ * Write one `android.sdk.path.xml` below a scratch `%APPDATA%`, with the option
+ * under `AndroidSdkPathStore` and its path in `value`; the option line is a
+ * parameter because the interesting cases name an unusable SDK.
  *
  * @param {string} appData - the scratch `%APPDATA%` directory.
  * @param {string} version - the IDE directory name, e.g. `AndroidStudio2025.1.3`.

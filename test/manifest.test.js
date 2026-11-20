@@ -41,14 +41,10 @@ function officialImports(...dirs) {
 }
 
 /**
- * Find the dark blobs in a decoded icon, eight-connected.
- *
- * The Android head draws exactly two dark marks — its eyes — so a blob count
- * above two means a stray mark was painted in, and an eye that has grown is one
- * that something merged into. Only pixels that are both opaque enough and dark
- * enough count, which keeps the antialiased edges out of it; eight-connectivity
- * then keeps a single borderline pixel on an eye's rim from reading as a mark of
- * its own.
+ * Find the dark blobs of a decoded icon, eight-connected. The head has exactly
+ * two (the eyes), so an extra mark or a grown eye fails; requiring pixels to be
+ * both opaque and dark keeps antialiased edges out, and eight-connectivity keeps
+ * one borderline rim pixel from reading as a third mark.
  *
  * @param {{width: number, height: number, data: Buffer}} image - a decoded icon.
  * @returns {Array<{area: number, width: number, height: number}>} the blobs.

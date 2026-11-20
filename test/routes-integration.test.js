@@ -8,33 +8,18 @@ import * as plugin from '../lib/index.js'
 import { FIELD_KEYS } from '../lib/settings.js'
 
 /**
- * The AVD directory the inventory route must scan.
- *
- * The route creates its runtime from `process.env`, and the AVD list is read
- * from disk as well as from `emulator -list-avds`, so the home is pinned to a
- * throwaway tree here: a developer's own AVDs would otherwise leak into the
- * answer. Each test file runs in its own process, so the assignment cannot
- * reach another suite.
+ * Pin the AVD home to a throwaway tree at module scope: the inventory route
+ * reads the AVD directory as well as `emulator -list-avds`, so a developer's own
+ * AVDs would otherwise leak into its answer. Each test file runs in its own
+ * process.
  */
 process.env.ANDROID_AVD_HOME = await mkdtemp(path.join(tmpdir(), 'aemh-routes-avd-'))
 
 /**
- * Integration tests for the two settings-page Fetch routes.
- *
- * `test/host.test.js` proves the routes are *registered* against a fake
- * context. This file closes the remaining gap: it mounts the plugin on a REAL
- * Cordis context whose `connection` service records the registry entries, then
- * INVOKES each handler and reads the real `Response` it produces. That is the
- * only way to pin the parts a registration assertion cannot see —
- *
- *   - the handler actually resolves `config` at call time rather than freezing
- *     whatever `apply` saw,
- *   - the payload is JSON the settings page can consume,
- *   - an optional-service deployment degrades instead of failing to boot, and
- *   - disposal really removes both routes from the registry.
- *
- * The `connection` service is the one stand-in: the real one is a private HTTP
- * surface that cannot be opened from a test. Everything else is the real thing.
+ * Mount the plugin on a REAL Cordis context and INVOKE each settings route's
+ * handler, reading its `Response` — registration alone cannot show that `config`
+ * is resolved at call time, the payload is consumable JSON, an optional service
+ * degrades, and disposal removes both routes. Only `connection` is stood in.
  */
 
 /**

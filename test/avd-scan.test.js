@@ -8,32 +8,18 @@ import { listAvds, parseAvdIni, parseAvds, scanAvds } from '../lib/providers/avd
 import { writeFakeTool } from './helpers/fake-tool.mjs'
 
 /**
- * AVD discovery without a working emulator.
- *
- * `emulator -list-avds` used to be the plugin's only door to the AVDs on this
- * machine. A host whose SDK lacks the emulator package, whose emulator refuses
- * to start in this environment, or whose harness refuses to spawn a child at
- * all answered "no AVDs" while the AVD directory held several — and the
- * settings page's default-AVD dropdown stayed empty, which is the bug this
- * scan exists to prevent.
- *
- * The scan reads the same directory the plugin hands every child as
- * `ANDROID_AVD_HOME`, so the tests seed a throwaway home and pin it. The
- * directory is also where the emulator itself looks: `emulator -list-avds`
- * answers from the `*.ini` files alone, which is why the scan and the command
- * have to filter the records whose payload was deleted the same way.
+ * Pin AVD discovery when `emulator -list-avds` cannot run: the scan reads the
+ * same `ANDROID_AVD_HOME` the emulator uses, so tests seed a throwaway home and
+ * filter deleted-payload records the same way — the bug was an empty default-AVD
+ * dropdown on hosts whose AVD directory held several.
  */
 
 /** A logger that says nothing; the providers only ever warn through it. */
 const QUIET = { info() {}, warn() {}, error() {} }
 
 /**
- * Build a runtime whose AVD directory is a throwaway tree.
- *
- * `emulator` is the fake `emulator` the scan is merged with, when the case
- * wants one. The configured `sdkPath` holds no tools, so tool resolution falls
- * through to `PATH`, where the fake is — the same arrangement the other
- * fake-tool suites use.
+ * Build a runtime with a throwaway AVD directory; `sdkPath` holds no tools, so
+ * resolution falls through to `PATH` where the optional fake `emulator` lives.
  *
  * @param {{emulator?: object[]}} [options] - the fake emulator's steps.
  * @returns {Promise<{rt: object, avdHome: string, workDir: string}>} the runtime and its directories.
@@ -61,12 +47,8 @@ async function runtime({ emulator } = {}) {
 }
 
 /**
- * Write the AVD directory a real installation holds.
- *
- * The records are the cases the scan distinguishes: a complete AVD, a record
- * whose payload was deleted (`emulator -list-avds` still names it, because it
- * only reads the `.ini`), a payload directory without its record (the emulator
- * cannot resolve it by name either), and files that are not AVDs at all.
+ * Seed the AVD cases the scan distinguishes: a complete AVD, a record whose
+ * payload was deleted, a payload with no record, and unrelated files.
  *
  * @param {string} home - the AVD directory.
  * @returns {Promise<void>} resolves when the tree exists.

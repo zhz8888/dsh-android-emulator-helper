@@ -8,20 +8,14 @@ import { fileURLToPath } from 'node:url'
 import * as hostIndex from '../lib/index.js'
 
 /**
- * Consistency gate for the browser bundle.
+ * Consistency gate for the browser bundle (run via `pnpm run check`).
  *
- * The client half cannot import the host's settings module — the client bundle
- * purity gate forbids cross-plugin value imports — so the field table and the
- * settings namespace are written twice. This script is the check that keeps the
- * two copies identical, plus the structural checks a host-side test cannot make
- * about a file the browser evaluates on its own.
+ * The client cannot import the host's settings module, so the field table and
+ * settings namespace are written twice; this keeps the copies identical and
+ * checks the browser-only file's structure.
  *
- * The invariants that read the bundle's exports are pure functions, exported so
- * the test suite can exercise them against fixtures. The gate itself only runs
- * when this file is the process entry point: importing it must not run the
- * whole gate as a side effect.
- *
- * Run with `pnpm run check`.
+ * Export-reading invariants are pure functions so tests can run them on fixtures;
+ * the gate itself runs only when this file is the entry point (import is side-effect free).
  */
 
 const failures = []
@@ -37,10 +31,7 @@ function isRecord(value) {
 }
 
 /**
- * The dictionaries the host half publishes to the page.
- *
- * Read from the same two files the host half reads, so a mount in this gate
- * installs the shipped copy as the page-initialization global.
+ * The dictionaries the host publishes to the page, read from the same files it reads.
  *
  * @returns {{en: Record<string, string>, zh: Record<string, string>}} the dictionaries.
  */
@@ -62,11 +53,9 @@ function entryField(body, field) {
 }
 
 /**
- * Remove line and block comments before the gate reads code.
- *
- * These checks compare source text, and a comment that explains the Settings
- * slots must not read as a second declaration of them. A `:` before `//` is
- * left alone, so a URL-shaped string cannot swallow the rest of its line.
+ * Remove line and block comments before source-text comparisons (so an
+ * explanatory comment is not read as a declaration). A `:` before `//` is spared
+ * so a URL-shaped string cannot swallow its line.
  *
  * @param {string} source - any source text.
  * @returns {string} the text without comments.
@@ -78,29 +67,19 @@ function stripComments(source) {
 }
 
 /**
- * The slot a bundle registers its own configuration page into.
- *
- * The Plugins page owns this key; a plugin page anywhere else is a page nothing
- * renders. A row's page is the one that opens from the row's **Configure**
- * control, so the form lives one click below the bundle's detail page rather
- * than inline on it.
+ * The slot a bundle registers its own configuration page into: the Plugins page
+ * owns this key, so the form lives on the row's **Configure** page, not inline on
+ * the bundle's detail page.
  */
 export const PLUGIN_PAGE_SLOT = 'plugins.row.config'
 
 /**
- * Check that every kind in the exported list is one the page actually renders.
+ * Check that every exported kind has a renderer: reads the `RENDERERS` map's keys
+ * from source and requires the exported list to match exactly.
  *
- * `FIELD_KINDS` is derived from the client's `RENDERERS` map, which makes the
- * two the same object *inside* the bundle — but the gate reads the exported list
- * across the realm boundary, where "derived from the renderer map" is only a
- * claim. A kind appended to the export (the audit's reproduction: `slider`
- * pushed onto `FIELD_KINDS` and the matching kind added to both field tables)
- * would pass every host↔client comparison and every existing test while the page
- * rendered a text box, because `RENDERERS` had no entry for it.
- *
- * The check therefore reads the map's own keys out of the source and requires
- * the exported list to be exactly that set — no kind may be added to the list
- * without a renderer behind it.
+ * Across the realm boundary "derived from the renderer map" is only a claim — a
+ * kind added to `FIELD_KINDS` without a renderer would pass host↔client checks
+ * yet render a text box.
  *
  * @param {string[]} kinds - the kinds the bundle exports.
  * @param {string} source - `lib/client.js`.
@@ -134,20 +113,13 @@ export function checkKindsAreRendered(kinds, source) {
 }
 
 /**
- * Check that the client registers into the slot it exports.
+ * Check the three registrations (row page, Settings section, section icon) take
+ * their slot/key/id from `PLUGIN_SURFACE` / `SETTINGS_SURFACE`, not literals.
  *
- * `PLUGIN_SURFACE` is only a claim unless the registration actually uses it.
- * The failure this catches was live: renaming the string literal passed to
- * `ctx.slots.register` moved the page to a slot nothing renders while
- * `PLUGIN_SURFACE` — the only thing the gate compared — stayed correct, so the
- * gate stayed green.
- *
- * The bundle now owns three registrations: the row's configuration page, the
- * optional Settings section and that section's navigation icon. The two Settings
- * entries must share one id, so both take it from `SETTINGS_SURFACE.id`; a
- * literal id on either side would let the icon detach from its section, and the
- * shell simply renders its default glyph for an unmatched icon, which looks like
- * a styling choice rather than a bug.
+ * A live failure this caught: a renamed registration literal moved the page to a
+ * slot nothing renders while the exported surface stayed correct. The two Settings
+ * entries must share `SETTINGS_SURFACE.id` or the icon detaches and the shell
+ * silently draws its default glyph.
  *
  * @param {string} source - `lib/client.js`.
  * @returns {string[]} failure messages; empty when the invariant holds.
@@ -211,14 +183,10 @@ export function checkRegistrationUsesSurface(source) {
 }
 
 /**
- * Check that the Settings slot names have exactly one source.
- *
- * `settings.section` and `settings.section.icon` may appear only inside the
- * exported `SETTINGS_SURFACE`. Anywhere else — a registration, an inject call,
- * a helper — a repeated literal is a second source that can drift, which is the
- * failure the old "never register into the Settings dialog" rule was written
- * for. The rule changed with the opt-in switch; the one-source property did
- * not. Comments are stripped first, so this covers code, not prose.
+ * Check the Settings slot names have one source: `settings.section` and
+ * `settings.section.icon` may appear only inside `SETTINGS_SURFACE`. A repeated
+ * literal anywhere else is a second source that can drift. Comments are stripped
+ * first, so this checks code, not prose.
  *
  * @param {string} source - `lib/client.js`.
  * @returns {string[]} failure messages; empty when the invariant holds.
@@ -241,18 +209,11 @@ export function checkSettingsSlotLiterals(source) {
 }
 
 /**
- * Mount the browser half over a minimal host and record what it registers.
+ * Mount the browser half over a minimal host and record its registrations.
  *
- * The gate has to observe the registration, not merely read it: the whole point
- * of the opt-in switch is that the Settings entry does not exist while the
- * setting is off. The shared primitives are stubbed, so the form's controller
- * degrades to the empty face — the registrations are what this observes, and a
- * gating rule that only worked through the controller would fail here.
- *
- * The page's copy is already in the bundle's dictionaries: `loadBundle`
- * installs the page-initialization global around the factory, which is what
- * the web server does when it renders `index.html`. Nothing has to be stubbed
- * here, and nothing has to be restored.
+ * Registration must be observed, not just read: the opt-in switch means the
+ * Settings entry does not exist while off. Shared primitives are stubbed so only
+ * registrations are tested; `loadBundle` already installed the locale global.
  *
  * @param {Record<string, any>} exported - the bundle's exports.
  * @param {boolean} enabled - the value the host resolves for the switch.
@@ -325,15 +286,12 @@ function mountClientHalf(exported, enabled) {
 }
 
 /**
- * Check that the Settings entry follows the `showInSettings` switch.
+ * Check the Settings entry follows `showInSettings` by mounting real `apply`
+ * with the switch off → on → off: no Settings entry when off, section + icon
+ * (one shared id) when on, both disposed when saved off without a reload.
  *
- * A structural check cannot prove the opt-in gates anything: a registration
- * moved out of the visibility guard still reads the exported surface and still
- * names the right slot. This mounts the real `apply` against a host that serves
- * the form with the switch off, then on, then off again, and requires the three
- * observations the feature promises — no Settings entry while the switch is
- * off, both entries (section and icon, one shared id) while it is on, and both
- * disposed again when it is saved off, without a reload.
+ * A structural check cannot prove the gate works — a registration moved out of
+ * the guard still reads the surface and names the right slot.
  *
  * @param {Record<string, any>} exported - the bundle's exports.
  * @param {{en: Record<string, string>, zh: Record<string, string>}} [localeSettings] - the dictionaries the locale files declare.
@@ -481,12 +439,9 @@ export function checkSettingsSectionGated(exported, localeSettings = { en: {}, z
 }
 
 /**
- * Every field kind must be one the halves actually handle.
- *
- * Both `lib/settings.js` and `lib/client.js` switch on `field.kind` with a
- * `default:` branch that falls through to a plain text input, so a kind only
- * one side knows does not fail — it degrades: the page renders a text box
- * where a number was expected and the value is staged as a string.
+ * Every field kind must be one the halves handle: both switch on `field.kind`
+ * with a `default:` text-input fallback, so an unknown kind degrades silently
+ * (a number staged as a string) rather than failing.
  *
  * @param {Array<{key: string, kind: string}>} fields - field descriptors.
  * @param {string[]} kinds - the kind names the client half handles.
@@ -510,17 +465,10 @@ export function checkFieldKinds(fields, kinds) {
 /**
  * Every suggestion source a field names must be one the client provides.
  *
- * `suggest` is a client-only concept: it indexes the suggestions object the
- * client builds from the discovery route, and a typo yields `undefined`, which
- * becomes an empty list. The datalist then simply disappears, with no error
- * anywhere — the field still renders, just without its suggestions.
- *
- * A `discovery` field has no other source of options: its descriptor carries no
- * `options`, and the dropdown renders only what the discovery list holds plus
- * the saved value. A discovery field without `suggest` therefore renders a
- * control with one option in it, which looks like an empty machine rather than
- * like a broken field — which is why that combination is refused here instead
- * of being left to be noticed on screen.
+ * A mistyped `suggest` yields `undefined` → an empty list: the datalist vanishes
+ * with no error. A `discovery` field needs `suggest` — it carries no `options`,
+ * so without it the dropdown has only the saved value and looks like an empty
+ * machine, not a broken field.
  *
  * @param {Array<{key: string, kind?: string, suggest?: string}>} fields - field descriptors.
  * @param {string[]} sources - the suggestion-source names the client provides.
@@ -549,13 +497,8 @@ export function checkSuggestSources(fields, sources) {
 }
 
 /**
- * The two locale files must declare the same keys.
- *
- * `locale/en.json` and `locale/zh.json` are the single source of every string
- * this plugin renders: the host half projects them into the field table, and
- * the browser half reads them from the injected global. A key present in one
- * file and missing from the other renders as the key itself in that language,
- * because the locale binding answers the key for a missing entry.
+ * The two locale files must declare the same keys: a key in one but not the other
+ * renders as the key itself there (the locale binding answers the key when missing).
  *
  * @param {{en: Record<string, unknown>, zh: Record<string, unknown>}} dictionary - the two dictionaries.
  * @returns {string[]} failure messages; empty when the invariant holds.
@@ -581,13 +524,9 @@ export function checkDictionarySymmetry(dictionary) {
 }
 
 /**
- * Every string the page can render must exist in both locale files.
- *
- * The field table names its copy by key rather than carrying it, so a key the
- * locale files do not declare is not a compile error anywhere — it is a raw key
- * on the page. This walks the same keys the page looks up: the fixed page
- * chrome, every group heading and hint, every field label and hint, every
- * placeholder, and every declared option label.
+ * Every string the page can render must exist in both locale files (a missing
+ * key is a raw key on the page, not a compile error). Walks the page's keys:
+ * chrome, group/field headings and hints, placeholders and option labels.
  *
  * @param {Array<{id: string, fields: Array<{key: string, placeholder?: boolean, optionLabel?: string[]}>}>} groups - the client's group table.
  * @param {string[]} fixedKeys - the page-chrome keys the bundle declares.
@@ -627,11 +566,8 @@ export function checkDictionaryCoverage(groups, fixedKeys, dictionary) {
 }
 
 /**
- * Every declared option label must exist as a dictionary entry in both languages.
- *
- * A field's `optionLabel` list names the option values that carry a readable
- * name. The page looks the entry up by key, so a label without an entry is a
- * silent no-op: the select falls back to the raw option value.
+ * Every declared option label must exist in both dictionaries: the page looks it
+ * up by key, so a missing entry silently shows the raw option value.
  *
  * @param {Array<{key: string, optionLabel?: string[]}>} fields - field descriptors.
  * @param {{en: Record<string, string>, zh: Record<string, string>}} dictionary - the dictionaries the page renders from.
@@ -674,13 +610,9 @@ export function checkOptionLabels(fields, dictionary) {
 }
 
 /**
- * The dictionary key suffix one option value is stored under.
- *
- * Mirrors `optionKey()` in `lib/client.js`: the empty option reserves the word
- * `empty`, and every other value is percent-encoded behind a `v.` marker so a
- * literal `"empty"` cannot collide with it. The client builds the key and reads
- * it back through one function, so the gate has to reproduce that rule to check
- * the entry the page will actually look up.
+ * The dictionary key suffix one option value is stored under: mirrors the
+ * client's `optionKey()` — empty reserves `empty`, others are percent-encoded
+ * behind `v.` so a literal `"empty"` cannot collide.
  *
  * @param {string} value - one option's value.
  * @returns {string} the key suffix.
@@ -690,16 +622,10 @@ export function optionKey(value) {
 }
 
 /**
- * Check that the render-time option-label lookup goes through `optionKey()`.
- *
- * The dictionary and the field table are both derived from the same `GROUPS`
- * literal, so every entry the gate can see is generated by the same
- * `optionKey()` the builder uses — which means a drift inside `optionKey()`
- * cannot be observed through the exports at all: change it and both sides move
- * together. What *can* drift is the lookup, because it is a separate call site.
- * Replacing `${optionKey(value)}` with `${value}` in `optionLabel()` leaves every
- * exported value correct and makes the page read a key that does not exist, so
- * the select renders the raw value; this check is what catches that.
+ * Check the render-time option-label lookup goes through `optionKey()`, not
+ * `${value}`: a drift inside `optionKey()` moves both export sides together and
+ * is unobservable, but the lookup is a separate call site that can read a
+ * non-existent key and silently render the raw value.
  *
  * @param {string} source - `lib/client.js`.
  * @returns {string[]} failure messages; empty when the invariant holds.
@@ -720,21 +646,10 @@ export function checkOptionLabelLookup(source) {
 }
 
 /**
- * The bundle must carry no copy of its own.
- *
- * This is the invariant the whole arrangement exists for. Every string the page
- * renders lives in `locale/en.json` and `locale/zh.json`; the bundle looks each
- * one up by key. A string written into `lib/client.js` is a second source, and
- * the two drift the moment one is edited — which is exactly what this
- * repository used to do, with the same table spelled twice and a gate comparing
- * the copies word for word.
- *
- * Two shapes are refused, because both are how copy creeps back in:
- *
- *   - a `{zh: …, en: …}` literal, which is the old inline dictionary shape;
- *   - a non-ASCII character in a string literal, which is what a Chinese label
- *     pasted into the bundle looks like. Comments are exempt: this file's own
- *     prose quotes the Chinese button names, and a comment renders nothing.
+ * The bundle must carry no copy of its own: every rendered string lives in the
+ * locale files. Two shapes are refused — a `{zh: …, en: …}` literal (the old
+ * inline dictionary) and a CJK character in a string literal (a pasted label).
+ * Comments are exempt; they render nothing.
  *
  * @param {string} source - `lib/client.js`.
  * @returns {string[]} failure messages; empty when the invariant holds.
@@ -764,10 +679,8 @@ export function checkNoInlineCopy(source) {
 }
 
 /**
- * Run every invariant and report the ones that failed.
- *
- * Split out of the module body so that importing this file — as the test suite
- * does — does not run the gate.
+ * Run every invariant and report failures. Split from the module body so
+ * importing this file (as tests do) does not run the gate.
  */
 function main() {
   // The bundle is evaluated the way the shell evaluates it, so a syntax error
@@ -1072,7 +985,7 @@ function main() {
 }
 
 /**
- * Print the failures and exit non-zero, or print the summary and exit zero.
+ * Print failures and exit non-zero, or print `summary` and exit zero.
  *
  * @param {string} summary - the line printed when nothing failed.
  */
@@ -1102,7 +1015,7 @@ if (process.argv[1] !== undefined && isEntryPoint(process.argv[1])) {
 }
 
 /**
- * Whether one path names this module, comparing resolved filesystem paths.
+ * Whether `candidate` names this module, comparing resolved filesystem paths.
  *
  * @param {string} candidate - the path the process was started with.
  * @returns {boolean} true when it is this file.

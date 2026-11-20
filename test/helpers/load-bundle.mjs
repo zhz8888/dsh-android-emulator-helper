@@ -5,32 +5,19 @@ import { fileURLToPath } from 'node:url'
 import { LOCALE_GLOBAL } from '../../lib/index.js'
 
 /**
- * Load the browser bundle exactly the way the DSH web shell does.
- *
- * Shared by the test suite and `scripts/check-bundle.mjs`. The shell injects a
- * `window.__ModuleLoader__` facade and evaluates the bundle as a classic
- * script, so this reproduces that: a `window` stand-in, the static module
- * table as the only resolvable `require`, and the factory invoked with the
- * same `require`.
- *
- * @module test/helpers/load-bundle
+ * Load `lib/client.js` the way the DSH web shell does: a `window` stand-in, the
+ * frozen static module table as the only resolvable `require`, and the factory
+ * invoked with that `require`. Shared by the suite and `scripts/check-bundle.mjs`.
  */
 
 /** Package root, derived from this file's location. */
 export const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 /**
- * The shell's frozen platform seed table.
- *
- * Taken from the shipped DSH web frontend's own module table — the SPA's
- * `staticModules` seed, which the shell hands to `__ModuleLoader__.create(...)`
- * as the only modules a plugin bundle may resolve. It is the shell's table,
- * not this plugin's: a stricter list here would reject a bundle the shell
- * would happily load, and a looser one would let through a bundle the shell
- * cannot resolve at all.
- *
- * Nothing outside this list may be `require`d by a client bundle unless it is
- * declared in `dsh.client.external` and provided by another plugin's row.
+ * The shell's frozen platform seed table, taken from the shipped DSH web
+ * frontend. A stricter list would refuse a bundle the shell would load, a looser
+ * one would admit one it cannot; nothing outside it may be `require`d unless
+ * declared in `dsh.client.external`.
  */
 export const STATIC_MODULES = [
   'react',
@@ -47,16 +34,9 @@ export const STATIC_MODULES = [
 ]
 
 /**
- * The page-initialization globals a real page carries.
- *
- * The web server renders the plugin's dictionaries into `index.html` as a
- * `global` row before the application bundle runs, so the bundle reads them
- * synchronously at module scope. A loader that evaluated the bundle without
- * them would exercise a deployment that renders no index through the harness'
- * web server — a real shape, but not the one the page ships in.
- *
- * The payload is read from the same two files the host half reads, so a test
- * that renders the page sees the copy a real page shows.
+ * The page-initialization globals a real page carries: the web server renders
+ * the dictionaries into `index.html` before the bundle runs, so a loader that
+ * omits them would exercise a deployment the page does not ship in.
  *
  * @returns {Record<string, unknown>} the globals to install around the factory.
  */
@@ -78,18 +58,10 @@ export function stubModule(extra = {}) {
 }
 
 /**
- * Evaluate `lib/client.js` and return the registration plus the module exports.
- *
- * `globals` reproduces the page-initialization data the web server renders into
- * `index.html` ahead of the bundle: the shell evaluates a plugin bundle only
- * after those `<script>` rows have run, so a bundle that reads one at module
- * scope must find it already installed here too. Each entry is set before the
- * factory runs and removed afterwards, so one load cannot leak into the next.
- *
- * It defaults to {@link pageGlobals}, because the shipped page always carries
- * the copy: a loader that left it out would exercise a deployment that renders
- * no index through the harness' web server. Pass `globals: {}` to load the
- * bundle the way such a deployment would.
+ * Evaluate `lib/client.js` and return the registration and module exports,
+ * installing {@link pageGlobals} around the factory and removing them after so
+ * one load cannot leak into the next. Pass `globals: {}` to model a deployment
+ * that renders no index through the harness' web server.
  *
  * @param {{resolve?: (specifier: string) => unknown, globals?: Record<string, unknown>}} [options] -
  *   module resolver override and page-initialization globals.

@@ -6,19 +6,10 @@ import { test } from 'node:test'
 import { cmdQuote, platformCommand, run } from '../lib/util/run.js'
 
 /**
- * The command line `cmd.exe` reads, and the batch files it launches.
- *
- * Windows cannot start a batch file directly, so a `.bat`/`.cmd` is handed to
- * `cmd.exe`, which parses the rest of the line as **text** rather than as
- * arguments. `cmd.exe` also reparses what it is handed, which is why a caret
- * escape written by the parent is not a safe way to protect a metacharacter:
- * the old implementation escaped `&` with a caret and the batch file then
- * never ran at all, while `cmd.exe` still returned exit code 0. Every token is
- * quoted instead, and the three characters a batch argument cannot carry are
- * refused rather than rewritten.
- *
- * These rules are pinned here because they fail silently: the call returns an
- * exit code and nothing says the argument was split or the batch skipped.
+ * Pin how `cmd.exe` reads a batch command line as text, not arguments: every
+ * token is quoted and three unrepresentable characters are refused, because a
+ * caret-escaped `&` used to skip the batch entirely while `cmd.exe` still
+ * returned 0 — a silent failure.
  */
 
 /** A scratch directory that is removed when the test ends. */

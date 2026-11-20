@@ -2,47 +2,17 @@ import { chmod, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 /**
- * Fake command-line tools, described once and rendered for the host.
- *
- * The providers under test drive real child processes, so the suite has to put
- * something on `PATH` that answers like `adb`, `emulator` or `avdmanager`. That
- * something used to be a `/bin/sh` script, which is the one thing a Windows
- * machine cannot run — so every test that needed a fake tool either failed
- * there or was skipped.
- *
- * A fake is therefore described **once**, as a list of steps, and rendered
- * twice: a POSIX shell script on POSIX, and on Windows a Node step script
- * behind a `.cmd` (or `.bat`) launcher. That launcher is the name the plugin
- * resolves on `PATH`, and `cmd.exe` is the only thing Windows can start a
- * script through; it starts the launcher, not the behaviour. The launcher
- * names the absolute `process.execPath` the suite already runs on, so a
- * Windows machine needs neither a PowerShell installation nor a `node` on
- * `PATH`.
- *
- * Windows used to render a PowerShell script. It does not any more: the
- * project's Windows rule is `pwsh` (PowerShell 7) first, `cmd.exe` as the final
- * fallback and never the in-box Windows PowerShell 5.1 (`powershell.exe`). A
- * fake needs no shell at all, so Node carries the behaviour and `cmd.exe` only
- * starts the launcher — which keeps the suite runnable on a stock Windows that
- * has never installed PowerShell 7.
- *
- * The step set is deliberately small: it covers what the fakes actually do —
- * record an argv, print something, branch on an argument or a file, write or
- * copy a file, sleep, and exit with a code.
- *
- * @module @zhz8888/dsh-android-emulator-helper/test/helpers/fake-tool
+ * Describe a fake CLI tool once as a list of steps, rendered twice: a POSIX shell
+ * script on POSIX, and on Windows a Node step script behind a `.cmd`/`.bat`
+ * launcher started by `cmd.exe`. The launcher embeds the suite's absolute
+ * `process.execPath`, so no PowerShell or `node` on `PATH` is needed — the
+ * project's Windows rule is `pwsh` first, `cmd.exe` last, never `powershell.exe`.
  */
 
 /**
- * One step of a fake tool.
- *
- * A branch step holds its body in `then`; the steps run in the order they are
- * listed, and only the first matching branch's body runs when that body ends
- * in `exit`.
- *
- * Text values may interpolate `${SUB}` (the sub-command), `${REST}` (the
- * command after it) and `${NAME}` (whatever a capture step stored under that
- * name).
+ * One step of a fake tool. Branch steps hold their body in `then`; steps run in
+ * order and text values may interpolate `${SUB}`, `${REST}` or a captured
+ * `${NAME}`.
  *
  * @typedef {object} FakeStep
  * @property {string} [record] - append the argv, `|`-joined, plus a newline.
@@ -110,11 +80,8 @@ function parts(text) {
 }
 
 /**
- * Render a text as a POSIX shell word, expanding any variable references.
- *
- * A literal part is escaped for a double-quoted string, so `$`, `` ` `` and
- * `"` stay literal while `$NAME` expands. The result is always one word: a
- * value that contains a space survives as one argument.
+ * Render a text as one POSIX shell word, escaping literal `$`, backtick and
+ * quotes so only `$NAME` expands — a value containing a space stays one argument.
  *
  * @param {string} text - the text.
  * @returns {string} the shell word.
@@ -132,11 +99,8 @@ function shWord(text) {
 }
 
 /**
- * Render a text as a JavaScript expression, expanding any variable references.
- *
- * The generated script defines `SUB`, `REST` and `A1`…`A6` from its own argv,
- * and a `capture` step declares one more; a reference to any of them becomes
- * the identifier itself.
+ * Render a text as a JavaScript expression; the generated script defines `SUB`,
+ * `REST` and `A1`…`A6` from argv, plus one identifier per capture step.
  *
  * @param {string} text - the text.
  * @returns {string} the expression.
@@ -153,11 +117,8 @@ function jsWord(text) {
 }
 
 /**
- * Render a glob as a JavaScript `RegExp` expression.
- *
- * `*` and `?` are the only wildcards, as they are for the POSIX `case`
- * rendering, and matching is case-sensitive for the same reason: the two
- * renderings have to answer identically for the same command line.
+ * Render a glob (`*` and `?` only) as a JavaScript `RegExp` expression,
+ * case-sensitive to match the POSIX `case` rendering exactly.
  *
  * @param {string} pattern - the glob.
  * @returns {string} a JavaScript expression that evaluates to the RegExp.
@@ -173,13 +134,8 @@ function globExpression(pattern) {
 }
 
 /**
- * Render a glob as a POSIX `case` pattern.
- *
- * A `case` pattern is word-split like any other shell word, so a pattern that
- * contains a space — `getprop sys.boot_completed` is one — is parsed as two
- * words and the script fails to parse at all. Quoting the literal segments
- * fixes that while leaving `*` a wildcard, which is what makes
- * `uiautomator dump*` a prefix match rather than a literal.
+ * Render a glob as a POSIX `case` pattern, quoting literal segments so spaces
+ * (`getprop sys.boot_completed`) do not split the word while `*` stays a wildcard.
  *
  * @param {string} pattern - the glob.
  * @returns {string} the pattern, quoted segment by segment.
@@ -337,18 +293,10 @@ function renderShellSteps(steps) {
 }
 
 /**
- * Render the steps as a Node script.
- *
- * This is the Windows rendering. The `.cmd`/`.bat` launcher starts it with the
- * absolute `process.execPath` the suite itself is running under, so the fake
- * needs no PowerShell installation and no `node` on `PATH`. The launcher is a
- * batch file because that is the only kind of script Windows starts through
- * `cmd.exe`; there is no PowerShell anywhere in the chain.
- *
- * Standard output is written with `process.stdout.write` and the generated
- * program leaves through `process.exitCode`, so Node flushes every pending byte
- * before it goes away — a raw PNG payload or a UTF-8 line is neither cut off
- * nor re-encoded through a console code page.
+ * Render the steps as a Node script — the Windows rendering. The `.cmd`/`.bat`
+ * launcher starts it with the suite's `process.execPath`; stdout is written with
+ * `process.stdout.write` and exit goes through `process.exitCode` so pending
+ * bytes (a raw PNG, a UTF-8 line) flush before exit.
  *
  * @param {FakeStep[]} steps - the fake's steps.
  * @returns {string} the script.
@@ -397,11 +345,9 @@ function renderNode(steps) {
 }
 
 /**
- * The names of every `ifRest` capture in a step tree, in first-seen order.
- *
- * A capture is script-scope in the other two renderings, so a value set in one
- * branch stays readable by a later step. The generated script mirrors that with
- * one `let` per capture at the top of `main`.
+ * The names of every `ifRest` capture in step order; each becomes one `let` at
+ * the top of `main` so a value set in one branch stays readable later, mirroring
+ * the script-scope captures of the other renderings.
  *
  * @param {FakeStep[]} steps - the steps to walk.
  * @returns {string[]} the capture names.
@@ -422,12 +368,9 @@ function captures(steps) {
 }
 
 /**
- * Render a list of steps as Node lines inside `async function main`.
- *
- * `exit` becomes `return`, so pending writes are flushed by Node's normal
- * shutdown instead of being truncated by `process.exit()`; `hang` keeps the
- * event loop alive so the platform can terminate the process the same way the
- * other renderings are terminated.
+ * Render steps as Node lines inside `async function main`: `exit` becomes
+ * `return` so writes flush at normal shutdown, and `hang` keeps the event loop
+ * alive for the platform to terminate.
  *
  * @param {FakeStep[]} steps - the steps.
  * @param {number} depth - the indentation depth inside `main`.
@@ -546,15 +489,9 @@ function renderNodeSteps(steps, depth) {
 }
 
 /**
- * Refuse a fake whose steps are not step objects.
- *
- * Both renderers walk `steps` with `for…of` and branch on `step.<field>`, so a
- * value of the wrong type is not an error anywhere: a string is walked one
- * character at a time, every branch is false, and the written fake is a script
- * that does nothing and exits 0. An assertion that expects the tool to have
- * answered then passes for the worst possible reason — the fake silently never
- * ran. The old shell-string form of this helper is exactly how that happens, so
- * it is rejected at the door instead.
+ * Refuse a fake whose steps are not step objects: both renderers walk with
+ * `for…of`, so a string is walked character by character and yields a no-op
+ * script that exits 0 — making an assertion pass for the worst reason.
  *
  * @param {unknown} steps - the value the caller passed.
  * @param {string} where - the step path, for the message.
@@ -575,13 +512,9 @@ function assertSteps(steps, where = 'steps') {
 }
 
 /**
- * Write a fake tool into a directory, in the flavour this host can run.
- *
- * On POSIX the fake is an executable shell script named after the tool. On
- * Windows the behaviour lives in a `.mjs` script and a `.cmd`/`.bat` launcher
- * named after the tool puts it on `PATH` — `cmd.exe` is the only thing Windows
- * starts a script through, and the launcher runs the same Node that is running
- * the suite, not a PowerShell installation.
+ * Write a fake tool in the flavour this host can run: an executable shell script
+ * on POSIX, or a `.mjs` behaviour plus a `.cmd`/`.bat` launcher on Windows
+ * (`bat` for project-local wrappers like `gradlew.bat`, `cmd` for `PATH` tools).
  *
  * @param {string} dir - the directory to write into.
  * @param {string} name - the tool's name, as the plugin looks for it.

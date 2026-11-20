@@ -9,15 +9,11 @@ import { listDevices } from '../lib/providers/device.js'
 import { discover } from '../lib/providers/project.js'
 
 /**
- * Integration smoke test: run the ported providers against the real machine.
+ * Run the ported providers against the real machine (needs an Android SDK).
  *
- * The unit tests cover the parsers; this script covers everything that only a
- * real Android SDK can prove — SDK discovery, `adb`/`emulator` invocation,
- * environment assembly, and the settings projection feeding them. It is not
- * part of `pnpm test`, because it needs an Android SDK and takes seconds.
- *
- *   node scripts/smoke.mjs                 # read-only probes
- *   node scripts/smoke.mjs --with-emulator # also boot an AVD and capture a screen
+ * Covers what unit tests cannot: SDK discovery, `adb`/`emulator` invocation and
+ * settings projection. Not part of `pnpm test`. With `--with-emulator` also boots
+ * an AVD and captures a screen.
  */
 
 const withEmulator = process.argv.includes('--with-emulator')

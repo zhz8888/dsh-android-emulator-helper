@@ -17,11 +17,9 @@ import { createRuntime } from '../lib/runtime.js'
  */
 
 /**
- * A runtime rooted at one scratch project.
- *
- * `sdkPath` is pinned to a directory that holds no SDK, so creating a project
- * on a developer machine does not pick up that machine's real SDK for the
- * generated `local.properties`.
+ * A runtime rooted at one scratch project, with `sdkPath` pinned to an empty
+ * directory so creating a project on a developer machine cannot pick up its real
+ * SDK for `local.properties`.
  *
  * @param {string} root - the session workspace.
  * @param {Record<string, {get: () => unknown}>} [config] - extra live settings.

@@ -9,19 +9,11 @@ import { openUrl, terminate } from '../lib/providers/app.js'
 import { writeFakeTool } from './helpers/fake-tool.mjs'
 
 /**
- * Logcat and app-lifecycle behaviour, pinned without a device.
- *
- * The log filter and the terminate check both used to answer from a signal that
- * cannot carry the answer: `android_logs({applicationId})` matched the app id
- * as text in a `-v time` tail — where an app's own lines never repeat it — and
- * `android_terminate_app` trusted `am force-stop`, which exits 0 for a package
- * that is not installed. These tests drive the real providers through a fake
- * `adb` on `PATH` and assert both the result and the exact device command, so
- * the fix cannot regress into "it returned something".
- *
- * `helpers/fake-tool.mjs` renders the fake once for both platforms, and the
- * runtime pins `sdkPath` and `ANDROID_AVD_HOME` for the reasons that helper's
- * other users document: a developer's own SDK and AVDs must not leak in.
+ * Pin logcat filtering and the terminate check without a device: a fake `adb` on
+ * `PATH` drives the real providers and asserts the exact device command, so the
+ * old signal-based answers (text-matched app id, `am force-stop`'s exit 0) cannot
+ * regress. `helpers/fake-tool.mjs` renders the fake per platform and the runtime
+ * pins `sdkPath` and `ANDROID_AVD_HOME`.
  */
 
 /** A healthy USB-attached device; a USB serial skips the emulator boot poll. */
@@ -53,12 +45,9 @@ const LONG_LINE = '10-30 11:00:00.000 I/chatty.service( 200): ' + 'x'.repeat(120
 const LONG_LOGS = Array.from({ length: 1400 }, () => LONG_LINE).join('\n') + '\n'
 
 /**
- * Install a fake `adb` that answers the calls the log and app providers make.
- *
- * The transcript files are the knobs: `pids` decides whether `pidof` names a
- * running process, `appLogcat` is what a `--pid`-filtered read prints,
- * `packages` is what `pm list packages` prints, and `pidUnsupported` makes a
- * `--pid` read fail the way an old `logcat` does.
+ * Install a fake `adb` answering the log and app providers: `pids`, `appLogcat`,
+ * `packages` and `pidUnsupported` are the transcript knobs for `pidof`,
+ * `--pid` reads and `pm list packages`.
  *
  * @param {{devices?: string, logcat?: string, appLogcat?: string, pids?: string, packages?: string, pidUnsupported?: boolean}} [options]
  *   - the transcripts the fake serves.

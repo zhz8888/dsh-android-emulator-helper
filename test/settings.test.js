@@ -4,12 +4,10 @@ import { Config, FIELD_KEYS, FIELDS, readSettings, systemImagePackage } from '..
 import { splitArgumentLines } from '../lib/util/run.js'
 
 /**
- * Settings projection tests.
- *
- * The two behaviours worth pinning are the live read (a volatile reference must
- * be unwrapped on every call, not captured once) and the legacy fallback chain
- * (settings page → `ANDROID_PLUGIN_*` environment variable → declared default),
- * because the original plugin's users depend on the middle rung.
+ * Pin the two settings behaviours that degrade silently: volatile references are
+ * unwrapped on every read, not captured once, and the fallback chain is settings
+ * page → `ANDROID_PLUGIN_*` env var → declared default (the middle rung is what
+ * the original plugin's users depend on).
  */
 
 /** Build a config object shaped like the one Cordis hands to `apply`. */

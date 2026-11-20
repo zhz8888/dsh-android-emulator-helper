@@ -6,20 +6,12 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 /**
- * Bridge the DSH runtime packages into this package for offline development.
+ * Link DSH runtime packages from a local install for offline development.
  *
- * The plugin's peer dependencies are provided by the host at runtime: inside a
- * booted DSH profile they resolve through the launcher's own resolution, and
- * nothing has to be installed here. For running `pnpm test`, `pnpm run check` or
- * the smoke scripts against a local DSH installation without a registry round
- * trip, this script links each package from where DSH already keeps it.
- *
- * `@deepseek-ai/schemastery` and `@deepseek-ai/cordis` normally come from the
- * profile's own `node_modules`; the rest ship inside the DSH application
- * bundle. Pass `--app <dir>` / `--profile <dir>` to point at other locations.
- *
- *   node scripts/link-dsh-deps.mjs
- *   node scripts/link-dsh-deps.mjs --clean
+ * Peers resolve through the host at runtime; this script lets `pnpm test`,
+ * `pnpm run check` and the smoke scripts find them without a registry round trip.
+ * Sources: the profile's `node_modules` (schemastery, cordis) or the DSH app bundle.
+ * Use `--app <dir>` / `--profile <dir>` to override, `--clean` to remove the links.
  */
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -29,14 +21,11 @@ const TARGET = path.join(ROOT, 'node_modules', '@deepseek-ai')
 const PACKAGES = ['schemastery', 'cordis', 'dsh-tools']
 
 /**
- * The user's home directory, in whatever shell this host runs under.
+ * The user's home directory for this host (`USERPROFILE` first on Windows).
  *
- * `HOME` is a POSIX convention: `cmd.exe` and PowerShell 7 do not set it, so
- * reading it alone turned the profile directory into the *relative*
- * `.dsh\profiles\desktop`, silently resolved against whatever directory the
- * developer happened to run the script from. On Windows `USERPROFILE` is the
- * native answer and comes first — a Git Bash `HOME` is `/c/Users/…`, which the
- * Windows path module turns into a path on the current drive.
+ * Reading `HOME` alone gives a relative path on Windows, where `cmd.exe` and
+ * PowerShell 7 do not set it — a Git Bash `HOME` is `/c/Users/…`, which the
+ * Windows path module resolves against the current drive.
  *
  * @param {NodeJS.ProcessEnv} [env] - the environment to read.
  * @param {NodeJS.Platform} [platform] - the platform to answer for.
@@ -48,11 +37,10 @@ function homeDirectory(env = process.env, platform = process.platform) {
 }
 
 /**
- * The directory a DSH desktop install keeps its app bundle in, by platform.
+ * The DSH desktop app-bundle directory for this platform.
  *
- * The macOS bundle path was the only default, so on Windows and Linux the script
- * looked in a directory that cannot exist and reported every package as missing
- * — an installation problem disguised as "DSH is not installed".
+ * `DSH_DESKTOP_APP` overrides the default; `undefined` means no default exists
+ * (so the caller must pass `--app` rather than mistaking this for "not installed").
  *
  * @param {{platform?: NodeJS.Platform, env?: NodeJS.ProcessEnv}} [options] - the host to resolve for.
  * @returns {string | undefined} the app directory, when the platform has a default.
@@ -71,8 +59,7 @@ function defaultAppDirectory({ platform = process.platform, env = process.env } 
 /**
  * The profile directory the desktop app boots from.
  *
- * The running host already answers this with `DSH_PROFILE_DIR`, which is the one
- * default that does not depend on guessing a layout.
+ * `DSH_PROFILE_DIR` from the running host wins; otherwise derive it from home.
  *
  * @param {{env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform}} [options] - the host to resolve for.
  * @returns {string} the profile directory.
@@ -105,11 +92,8 @@ function entryExists(candidate) {
 }
 
 /**
- * Whether the path is a link this script could have created.
- *
- * `lstat` reports a Windows junction as a symbolic link, which is what makes
- * `--clean` safe: an installed package left behind by pnpm is a real directory
- * and is never removed by this script.
+ * Whether the path is a link this script could have created (`lstat` sees a
+ * Windows junction as a symlink); a real pnpm package directory is never removed.
  */
 function isLink(candidate) {
   try {
@@ -120,19 +104,11 @@ function isLink(candidate) {
 }
 
 /**
- * Put a link in `link`, replacing whatever is there, without destroying it first.
+ * Replace `link` with a link to `source` without destroying the old entry first.
  *
- * The previous order — delete the installed directory, then create the link —
- * made a permission error destructive. A stock Windows host denies directory
- * *symbolic* links (`SeCreateSymbolicLinkPrivilege`), so `symlinkSync` threw
- * after the package was already gone and `pnpm test` could no longer resolve it
- * until a reinstall. Two changes close that:
- *
- * - Windows gets a **junction**, which needs no such privilege and is what
- *   pnpm and npm use for directory links there.
- * - The link is created under a temporary name first, and the installed entry is
- *   moved aside rather than deleted. Only a successful link is swapped in; a
- *   failed swap restores the original.
+ * Use a Windows **junction** (no `SeCreateSymbolicLinkPrivilege` needed) and stage
+ * the link under a temporary name: moving the old entry aside, never deleting it
+ * up front, means a failed swap restores the original instead of losing the package.
  *
  * @param {string} source - the package directory to link to.
  * @param {string} link - the entry to replace.

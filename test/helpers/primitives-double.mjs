@@ -1,22 +1,9 @@
 /**
  * A faithful double of the `@deepseek-ai/dsh-client-ui-primitives` surface the
- * settings page uses.
- *
- * Why a double rather than the real package: the primitives are a *client*
- * package, shipped as a bundler input. Their `lib/index.js` imports
- * `*.module.css`, `simple-icons` and `zustand/vanilla` — all satisfied by DSH's
- * browser bundler and by nothing else. Importing them in plain Node would mean
- * reconstructing the whole client dependency graph, which would test the
- * reconstruction rather than this plugin.
- *
- * What is therefore real in the render test: React itself (hooks, element
- * creation, `react-dom/server` output) and this plugin's own code. What is
- * doubled: the primitive components and `SettingsFormModel`. Every method below
- * mirrors the shipped contract, which was read from
- * `dsh-client-ui-primitives/lib/index.js` — the specs are copied verbatim, and
- * `SettingsFormModel` follows the same staging, shell and field-state rules.
- *
- * @module test/helpers/primitives-double
+ * page uses. The real package is a browser bundler input (`*.module.css`,
+ * `simple-icons`, `zustand/vanilla`), so plain Node cannot import it; React and
+ * this plugin's code stay real, while the primitive components and
+ * `SettingsFormModel` mirror the shipped contract read from its `lib/index.js`.
  */
 import React from 'react'
 

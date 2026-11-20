@@ -8,17 +8,10 @@ import { startEmulator } from '../lib/providers/avd.js'
 import { writeFakeTool } from './helpers/fake-tool.mjs'
 
 /**
- * Emulator startup failure reporting, tested hermetically.
- *
- * A fake `emulator` and a fake `adb` on `PATH` drive the whole path: discovery,
- * spawn, output capture, early-exit detection, the boot poll and the error
- * message. This is the behaviour the original plugin could not offer — it
- * discarded the emulator's output, so every startup failure looked like an
- * unexplained boot timeout.
- *
- * The fake is rendered for the host by `helpers/fake-tool.mjs`: a shell script
- * on POSIX, a Node step script behind a `.cmd` launcher on Windows, so the
- * same contracts are pinned on both.
+ * Pin emulator startup failure reporting hermetically: a fake `emulator` and `adb`
+ * on `PATH` drive discovery, spawn, output capture, early-exit detection and the
+ * boot poll — behaviour the original plugin lost by discarding the emulator's
+ * output. The fake is rendered per platform by `helpers/fake-tool.mjs`.
  */
 
 /**
@@ -37,12 +30,9 @@ async function fakeEmulator(binDir) {
 }
 
 /**
- * A runtime whose `PATH` sees the fake toolchain.
- *
- * Every runtime pins a healthy, empty `adb` unless the case asks for another
- * one: the boot wait can only observe a start through `adb devices`, so a
- * machine with no adb (or with a real one on `PATH`) must not decide how these
- * tests behave. The broken-adb case below supplies its own fake.
+ * Build a runtime whose `PATH` sees the fake toolchain; every case gets a healthy,
+ * empty `adb` unless it asks for another, because the boot wait can only observe a
+ * start through `adb devices` and a real `adb` must not decide the outcome.
  *
  * @param {{binDir?: string, config?: object, adb?: object[]}} [options] - extra live settings, the fake to use, or a directory already prepared.
  * @returns {Promise<{rt: object, binDir: string, dataDir: string}>} the runtime and its directories.

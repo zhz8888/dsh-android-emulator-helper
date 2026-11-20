@@ -1,19 +1,10 @@
 import { inflateSync } from 'node:zlib'
 
 /**
- * Decode an 8-bit RGBA PNG into raw pixels.
- *
- * The icon is the only image this suite reads pixel by pixel, and the check it
- * needs — "does any half-transparent pixel still carry the colour that was keyed
- * out?" — cannot be made from the header alone. Node ships `zlib`, so a decoder
- * of thirty lines beats an image dependency the package would have to carry for
- * one assertion.
- *
- * Only the subset the repository's own icons use is supported: 8-bit truecolour
- * with alpha, non-interlaced. Anything else is reported as unsupported rather
- * than mis-decoded.
- *
- * @module test/helpers/decode-png
+ * Decode an 8-bit RGBA PNG into raw pixels for the one pixel-by-pixel icon
+ * assertion in the suite (keyed-out colour still present in half-transparent
+ * pixels). Only non-interlaced 8-bit truecolour with alpha is supported, using
+ * Node's built-in `zlib` rather than an image dependency.
  */
 
 /** Samples per pixel for the colour type this decoder accepts. */

@@ -14,19 +14,11 @@ import { SETTINGS_NAMESPACE } from '../lib/settings.js'
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
- * Consistency-gate unit tests.
- *
- * The gate compares the two written-twice copies of the settings table, and
- * every comparison it makes is a pure function over plain data. These tests
- * pin the four checks that close the degradations no other test could see:
- *
- *   - an unknown field kind renders as a text box and loses the value,
- *   - a mistyped `suggest` name silently removes the datalist,
- *   - a key in one language's dictionary but not the other's renders as a
- *     raw key.
- *
- * The assertions below import the shipped gate rather than a copy of it: a
- * copy would keep passing after the gate itself stopped checking.
+ * Unit-test the consistency gate's pure checks over the shipped client and locale
+ * files: an unknown field kind, a mistyped `suggest` name and a dictionary key
+ * present in only one language each degrade silently unless the gate catches them.
+ * The assertions import the shipped gate, not a copy that could keep passing after
+ * the real one stopped checking.
  */
 
 /** The kinds the browser half renders a control for. */
@@ -433,14 +425,9 @@ test('main() calls every check the gate declares', () => {
 })
 
 /**
- * Lay out the files the gate reads in a fresh directory.
- *
- * Only the files `main()` opens are copied — the package manifest, the patch
- * row, `lib/` (the bundle and the holder of the namespace), `locale/`, the
- * bundle loader and the gate itself; `node_modules` is linked rather than
- * copied because the host's peers are what the imported modules resolve
- * against. The layout is the point: `load-bundle.mjs` derives the repository
- * root from its own location, so a copy runs the gate against the copy.
+ * Lay out the files `main()` reads in a fresh directory so `load-bundle.mjs`
+ * derives the copy's root from its own location; `node_modules` is linked, not
+ * copied, so the imported modules still resolve against the host's peers.
  *
  * @param {string} directory - the directory to build the copy in.
  * @returns {string} the copy's root.

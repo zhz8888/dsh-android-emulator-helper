@@ -8,27 +8,13 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { ROOT, loadBundle } from './helpers/load-bundle.mjs'
 
 /**
- * Render the plugin's configuration page with real React.
- *
- * The form is the artifact a port most easily gets wrong: a missing dictionary
- * key, a field the host never sends, an `inject` face that does not match what
- * the slot renderer calls, or an uncontrolled input. Rendering it through
- * `react-dom/server` turns all of those into a failing test instead of a broken
- * plugin page.
- *
- * The same suite covers the optional Settings entry: with the page's own switch
- * off the mount must touch the Settings surface not at all, and with it on the
- * bundle must register a `settings.section` entry and its
- * `settings.section.icon` contribution, then dispose both when it goes off
- * again.
- *
- * React is real. `@deepseek-ai/dsh-client-ui-primitives` is doubled, because the
- * shipped package is a browser bundler input (`*.module.css`, `simple-icons`,
- * `zustand/vanilla`) that plain Node cannot import; the double mirrors the
- * documented contract. See `test/helpers/primitives-double.mjs`.
- *
- * The render runs in a child process so the JSON report is not polluted by
- * anything else the module graph prints.
+ * Render the plugin's configuration page with real React and `react-dom/server`
+ * so a missing dictionary key, an unregistered inject face or an uncontrolled
+ * input fails a test instead of shipping a broken page. With the page's switch
+ * off no Settings slot is touched; with it on, a `settings.section` entry and its
+ * icon are registered and disposed on switch-off. The primitives are doubled
+ * (shipped package is a browser bundler input), and the render runs in a child
+ * process to keep the JSON report clean.
  */
 
 const run = promisify(execFile)
@@ -391,12 +377,9 @@ test('no unresolved dictionary key leaks into the markup', () => {
 })
 
 /**
- * The two states the markup assertions above cannot see.
- *
- * `render-page.mjs` doubles the primitives faithfully, which is what a page has
- * to render against. These mounts need the opposite: a shared model carrying only
- * the documented API (the shipped class keeps its helpers private), and a model
- * that cannot be built at all.
+ * Cover the two states the markup assertions cannot see: a shared model with
+ * only the documented API (the shipped class keeps its helpers private), and a
+ * model that cannot be constructed at all.
  */
 
 /** The shared form scope the page binds to; the client reads only its public snapshot. */
@@ -406,12 +389,9 @@ function fakeScope() {
 }
 
 /**
- * A `SettingsFormModel` carrying only the documented API.
- *
- * The shipped class declares `stored` and `sectionValue` private, so this double
- * is what a primitives release that renamed them would look like — and the page
- * used to read them anyway, through an `unknown` assertion the type gate cannot
- * follow.
+ * A `SettingsFormModel` that exposes only the documented API, as a primitives
+ * release that renamed the private helpers would — the page used to read those
+ * through an `unknown` assertion the type gate cannot follow.
  */
 class PublicOnlyModel {
   constructor(scope, specs) {
@@ -457,12 +437,9 @@ function settingsTextField(field) {
 }
 
 /**
- * Mount the real `apply` over a browser context that records its registrations.
- *
- * Every service is the minimum the half touches; the shared model comes from
- * `primitives`, which is what the test varies. The registrations are held as a
- * list because a mount makes more than one once the optional Settings entry is
- * enabled, so the plugin-page entry is looked up by its slot name.
+ * Mount the real `apply` over a browser context that records its registrations
+ * as a list, so the plugin-page entry can be found by slot name once the optional
+ * Settings entry adds more than one.
  */
 function mountWith(primitives) {
   const record = { registrations: [], pluginPage: undefined, warnings: [], applyError: undefined }

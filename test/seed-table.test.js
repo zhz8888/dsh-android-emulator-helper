@@ -6,37 +6,20 @@ import { test } from 'node:test'
 import { STATIC_MODULES } from './helpers/load-bundle.mjs'
 
 /**
- * The shell's static module table.
- *
- * A client bundle may only `require` what the DSH web shell serves, so the
- * table this repository pins has to be the shell's own seed table. It used to
- * be shorter than the shell's, which made the helper refuse a bundle the shell
- * would have loaded — a stricter list is a bug, not extra safety. The shipped
- * SPA is the source of truth; the test below reads it when DSH is installed
- * and skips when it is not, because the suite itself is hermetic.
- *
- * Finding the SPA is platform work of its own. The desktop app is an Electron
- * bundle: a macOS install keeps it unpacked under `Contents/Resources/app`,
- * while a packaged Windows/Linux install ships `resources/app.asar` — an
- * archive whose contents only a reader for its header can see. A single
- * hardcoded macOS path therefore made this the one real-shell comparison that
- * never ran on the other two platforms, and its skip message claimed "no
- * installed DSH" on a machine that had one. The candidates below cover the
- * per-platform install locations, the running Electron host, and an explicit
- * `DSH_WEB_FRONTEND` override for a layout none of those guess (a portable
- * install, a checkout, a CI cache).
+ * Pin the shell's static module table against the shipped SPA, which is the
+ * source of truth: a shorter local table refuses bundles the shell would load.
+ * Finding the SPA is platform work — macOS unpacks `Contents/Resources/app`,
+ * packaged installs ship `app.asar` — so the candidates cover per-platform
+ * locations, the running Electron host and a `DSH_WEB_FRONTEND` override.
  */
 
 /** Where an installed app keeps the built web frontend, inside its resources root. */
 const FRONTEND_ASSETS = ['node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist', 'assets']
 
 /**
- * The candidate app roots on a host, most specific first.
- *
- * A root is either a directory holding `Resources/app` laid out like the macOS
- * bundle (`<root>/node_modules/@deepseek-ai/dsh-web-frontend/dist/assets`), or
- * the packaged `app.asar` itself. `DSH_WEB_FRONTEND` may name any of: an app
- * root, the frontend package, its `dist/assets`, or an `app.asar`.
+ * Candidate app roots, most specific first: a directory holding the macOS-style
+ * `Resources/app`, or a packaged `app.asar`. `DSH_WEB_FRONTEND` may name an app
+ * root, the frontend package, its `dist/assets`, or an asar.
  *
  * @param {{platform?: NodeJS.Platform, env?: NodeJS.ProcessEnv, resourcesPath?: string}} [options] - the host to resolve for.
  * @returns {string[]} the candidate roots.
@@ -118,11 +101,9 @@ function javascriptOf(directory) {
 }
 
 /**
- * The directories a candidate may hold the frontend's assets in.
- *
- * `DSH_WEB_FRONTEND` may name the assets directory itself, which is the one
- * layout the two joins below cannot see, so a directory that carries the
- * SPA's own `index-<hash>.js` is added to the front.
+ * Directories a candidate may hold the frontend's assets in; a directory with
+ * the SPA's own `index-<hash>.js` is put first because `DSH_WEB_FRONTEND` may
+ * name the assets directory itself, which the two joins cannot see.
  *
  * @param {string} root - the candidate root.
  * @returns {string[]} the directories to try.
@@ -135,12 +116,9 @@ function assetDirectories(root) {
 }
 
 /**
- * Read the frontend's JavaScript out of an Electron `app.asar` archive.
- *
- * An asar is a header — a 16-byte prefix whose last field is the header's
- * length, then a JSON directory of `{size, offset}` entries — followed by the
- * concatenated files. Only the frontend's own assets are read: the archive is
- * hundreds of megabytes and nothing here needs the rest of it.
+ * Read the frontend's JavaScript out of an Electron `app.asar`: a 16-byte
+ * prefix, a JSON directory of `{size, offset}` entries, then the concatenated
+ * files. Only the frontend's assets are read; the archive is hundreds of MB.
  *
  * @param {string} archive - the `app.asar` path.
  * @returns {Array<{name: string, source: string}>|undefined} the sources, or undefined when the archive is unusable.
@@ -218,12 +196,9 @@ function objectLiteralAfter(source, from) {
 }
 
 /**
- * The specifiers one SPA bundle declares as its seed table.
- *
- * The shell builds the table once and hands it to the module loader as
- * `staticModules:NAME()`, where `NAME` is a function returning the object
- * literal whose keys are the specifiers. A bundle that does not carry that
- * shape is not the shell's entry chunk.
+ * The specifiers an SPA bundle declares as `staticModules:NAME()`, where `NAME()`
+ * returns the object literal of specifiers. A bundle without that shape is not
+ * the shell's entry chunk.
  *
  * @param {string} source - one JavaScript file of the SPA.
  * @returns {string[]|undefined} the specifiers, or undefined when this file does not declare them.
@@ -340,13 +315,9 @@ test('the seed parser is not fooled by a bundle without a seed table', () => {
 })
 
 /**
- * Write a minimal Electron `app.asar` holding one file.
- *
- * The format is a prefix whose last 4 bytes are the header's length, the JSON
- * directory, then the file bytes at the offsets the directory declares
- * (relative to the end of the header). Only what {@link asarSources} reads is
- * written, which is exactly the point: the fixture proves the reader handles
- * the real layout rather than a directory it can list.
+ * Write a minimal `app.asar` holding one file, in exactly the layout
+ * {@link asarSources} reads: prefix, JSON directory, then the file at its
+ * declared offset — so the fixture proves the reader handles the real layout.
  *
  * @param {string} archive - the file to write.
  * @param {string} inner - the path inside the archive, `/`-separated.

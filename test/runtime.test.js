@@ -7,25 +7,18 @@ import { createRuntime, sessionCwd } from '../lib/runtime.js'
 import { DATA_DIR_NAME, defaultDataRoot } from '../lib/util/path.js'
 
 /**
- * Runtime resolution tests.
- *
- * `lib/runtime.js` exists for one reason: a long-lived harness process serves
- * several sessions at once, so `process.cwd()` is not the caller's workspace.
- * The session workspace is read from the tool execution record, and nothing
- * else in the process can supply it — so a typo in that path degrades
- * silently, every call quietly falling back to the process directory and every
- * path the plugin touches pointing somewhere else. Nothing else in the suite
- * exercises that path: every other runtime is built with an explicit `cwd`.
+ * Pin how `lib/runtime.js` reads the session workspace from the tool execution
+ * record rather than `process.cwd()`, which belongs to the long-lived harness:
+ * a typo there silently falls back to the process directory. Every other test
+ * builds a runtime with an explicit `cwd`.
  */
 
 /** The workspace the user opened, as the harness records it in the session header. */
 const WORKSPACE = '/work/project'
 
 /**
- * A tool execution record carrying a session workspace.
- *
- * The shape is the harness' own: `exec.agent.session.header.cwd` is where the
- * session header keeps the directory the user opened.
+ * A tool execution record carrying the session workspace at the harness' own
+ * `exec.agent.session.header.cwd` path.
  *
  * @param {string} [cwd] - the session workspace.
  * @returns {object} the execution record.

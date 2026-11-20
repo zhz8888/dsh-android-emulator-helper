@@ -8,14 +8,9 @@ import { fallbackAdb, findTool, platformToolsAdb } from '../lib/providers/sdk.js
 import { writeFakeTool } from './helpers/fake-tool.mjs'
 
 /**
- * The last-resort `adb` search.
- *
- * The normal resolution is the resolved SDK root, then the environment's own
- * lookup (`where adb` on Windows). A host can have the SDK installed while
- * `platform-tools` is not on `PATH` — the environment answers nothing, and a
- * diagnostic that reports "adb is missing" while the SDK holds one is worse
- * than a wider search. These tests pin that wider search: it is filesystem
- * only, it only runs for `adb`, and it only speaks when nothing else did.
+ * Pin the last-resort `adb` filesystem search: it runs only for `adb`, only when
+ * the SDK root and the environment's own lookup both answer nothing, and stays
+ * silent once another resolution has succeeded.
  */
 
 /** A logger that says nothing; the providers only ever warn through it. */
@@ -39,14 +34,9 @@ async function seedAdb(dir) {
 }
 
 /**
- * A runtime whose environment either cannot answer for `adb` or answers with a
- * fake one.
- *
- * The lookup itself is the real `where`/`which`, and `PATH` is reduced to the
- * directories that tool needs plus the throwaway bin directory: a machine whose
- * PATH holds another `adb` would otherwise answer before the fallback is ever
- * reached, which is exactly the case these tests must not depend on. `sdkPath`
- * is pinned so the fallback's first candidate is the throwaway tree.
+ * Build a runtime whose `adb` lookup yields nothing or a fake: `PATH` is cut to
+ * what `where`/`which` needs plus a throwaway bin so a machine's own `adb` cannot
+ * answer ahead of the fallback, and `sdkPath` is pinned to that tree.
  *
  * @param {{sdkPath?: string, pathAdb?: boolean, logger?: object}} [options] - the environment to build.
  * @returns {Promise<{rt: object, binDir: string, workDir: string}>} the runtime and its directories.
