@@ -100,14 +100,14 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 | 分组 | 设置项 | 类型 | 默认值 | 旧环境变量回落 |
 |---|---|---|---|---|
 | SDK 与工具链 | `sdkPath` | 文本 | 空（自动探测） | `ANDROID_PLUGIN_SDK_PATH` |
-| | `jdkMajor` | 文本，建议来自本机 | `17` | `ANDROID_PLUGIN_JDK_MAJOR` |
-| | `buildToolsVersion` | 文本，建议来自本机 | `35.0.0` | `ANDROID_PLUGIN_BUILD_TOOLS_VERSION` |
+| | `jdkMajor` | 下拉（`discovery`），列出本机已安装 JDK 的主版本 | `17` | `ANDROID_PLUGIN_JDK_MAJOR` |
+| | `buildToolsVersion` | 下拉（`discovery`），列出本机已安装的 build-tools 版本 | `35.0.0` | `ANDROID_PLUGIN_BUILD_TOOLS_VERSION` |
 | 模拟器与设备 | `defaultAvd` | 下拉（`discovery`），列出本机所有 AVD | `medium_phone` | `ANDROID_PLUGIN_DEFAULT_AVD` |
 | | `defaultSerial` | 文本，建议来自本机 | 空 | — |
 | | `autoStartEmulator` | 开关 | 开 | — |
 | | `emulatorArgs` | 多行文本，每行一个参数 | 空 | — |
 | | `bootTimeoutSeconds` | 整数 | `180` | — |
-| API 与系统镜像 | `apiLevel` | 文本，建议来自本机 | `35` | `ANDROID_PLUGIN_API_LEVEL` |
+| API 与系统镜像 | `apiLevel` | 下拉（`discovery`），列出本机已安装的 platform 与系统镜像 | `35` | `ANDROID_PLUGIN_API_LEVEL` |
 | | `systemImageVariant` | 下拉 | `default` | `ANDROID_PLUGIN_SYSTEM_IMAGE_VARIANT` |
 | | `systemImageAbi` | 下拉（留空 = 宿主架构） | 自动 | `ANDROID_PLUGIN_SYSTEM_IMAGE_ABI` |
 | | `minSdk` | 整数 | `23` | — |

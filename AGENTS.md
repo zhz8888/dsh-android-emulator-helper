@@ -149,14 +149,14 @@ is the page order, and the group's `id` is also its dictionary namespace:
 | Group | Field | Kind | Default | Legacy environment variable |
 |---|---|---|---|---|
 | `sdk` | `sdkPath` | text | `""` | `ANDROID_PLUGIN_SDK_PATH` |
-| `sdk` | `jdkMajor` | text | `"17"` | `ANDROID_PLUGIN_JDK_MAJOR` |
-| `sdk` | `buildToolsVersion` | text | `"35.0.0"` | `ANDROID_PLUGIN_BUILD_TOOLS_VERSION` |
+| `sdk` | `jdkMajor` | discovery | `"17"` | `ANDROID_PLUGIN_JDK_MAJOR` |
+| `sdk` | `buildToolsVersion` | discovery | `"35.0.0"` | `ANDROID_PLUGIN_BUILD_TOOLS_VERSION` |
 | `emulator` | `defaultAvd` | discovery | `"medium_phone"` | `ANDROID_PLUGIN_DEFAULT_AVD` |
 | `emulator` | `defaultSerial` | text | `""` | — |
 | `emulator` | `autoStartEmulator` | boolean | `true` | — |
 | `emulator` | `emulatorArgs` | multiline | `""` | — |
 | `emulator` | `bootTimeoutSeconds` | number | `180` | — |
-| `image` | `apiLevel` | text | `"35"` | `ANDROID_PLUGIN_API_LEVEL` |
+| `image` | `apiLevel` | discovery | `"35"` | `ANDROID_PLUGIN_API_LEVEL` |
 | `image` | `systemImageVariant` | select | `"default"` | `ANDROID_PLUGIN_SYSTEM_IMAGE_VARIANT` |
 | `image` | `systemImageAbi` | select | `""` | `ANDROID_PLUGIN_SYSTEM_IMAGE_ABI` |
 | `image` | `minSdk` | number | `23` | — |
@@ -240,10 +240,12 @@ A third client-side idea is the **`discovery` field kind**: a dropdown whose
 options come from the discovery list its `suggest` names rather than from the
 field table, so the host declares no `options` and the page fills the control
 from the inventory route. The kind itself is still declared on both sides and
-compared by the gate — only the option values are runtime data. The default AVD
-is the field that uses it, and the page reads the inventory once when it opens,
+compared by the gate — only the option values are runtime data. Four fields use
+it: the default AVD, the JDK major, the build-tools version and the API level.
+Each is a pick-only dropdown, so the user cannot hand-type a version this
+machine does not have, and the page reads the inventory once when it opens,
 because a dropdown that stays empty until the user finds the refresh button is
-not a list of this machine's AVDs.
+not a list of this machine's SDKs and AVDs.
 
 What the bundle may `require` is a run-time rule, not a build-time import
 graph. The shell's module table answers a platform seed word, an

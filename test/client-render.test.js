@@ -224,30 +224,44 @@ test('the switch sits in a right-hand column, with its label and hint on the lef
   )
 })
 
-test('every dropdown shares one chevron, including the SDK suggestion inputs', () => {
-  // Three kinds of control offer a list: the two fixed selects, the
-  // discovery AVD dropdown and the four suggestion-backed text inputs. They
-  // all render through one wrapper, so the SDK group's datalist inputs can
-  // no longer look different from the selects in the other groups.
+test('every dropdown shares one chevron, and the version fields are pick-only', () => {
+  // Two fixed selects, four discovery dropdowns (default AVD, JDK major,
+  // build-tools version and API level) and the one remaining suggestion input
+  // (default device serial) all render through the same wrapper, so no control
+  // that offers a list can look different from the selects in the other groups.
   const wrappers = report.markup.match(/<span class="aemh_selectWrap">/g) ?? []
   const chevrons = report.markup.match(/<svg class="aemh_chevron"/g) ?? []
-  assert.equal(wrappers.length, 7, 'two selects, one discovery dropdown, four suggestion inputs')
+  assert.equal(wrappers.length, 7, 'two selects, four discovery dropdowns, one suggestion input')
   assert.equal(chevrons.length, wrappers.length, 'one chevron per framed control')
   assert.match(report.markup, /<path d="M4 6l4 4 4-4"><\/path>/, 'the chevron is a stroked inline SVG path')
 
-  // The four suggestion fields keep their free-text input and datalist, but
-  // now carry the same chevron. Before discovery answers their option lists
-  // are empty, so the arrow must follow the declared `suggest` source rather
-  // than the live suggestion count.
-  assert.equal((report.markup.match(/aemh_hasSuggest/g) ?? []).length, 4)
-  assert.equal((report.markup.match(/<datalist/g) ?? []).length, 4)
-  for (const label of ['JDK major version', 'Build-tools version', 'Android API level', 'Default device serial']) {
+  // The three version fields are now real <select> dropdowns fed by discovery:
+  // the user picks one of the versions this machine actually has and cannot
+  // type an arbitrary value. Only defaultSerial keeps a free-text input with a
+  // datalist, because a device serial need not be connected to be configured.
+  assert.equal((report.markup.match(/aemh_hasSuggest/g) ?? []).length, 1)
+  assert.equal((report.markup.match(/<datalist/g) ?? []).length, 1)
+  for (const [label, value] of [
+    ['JDK major version', '17'],
+    ['Build-tools version', '35.0.0'],
+    ['Android API level', '35'],
+  ]) {
     const field = fieldMarkup(report.markup, label)
     assert.ok(field, `missing field frame for ${label}`)
-    assert.match(field, /aemh_hasSuggest/, `${label} keeps its suggestion input`)
+    assert.match(field, /<select /, `${label} is a pick-only dropdown`)
+    assert.doesNotMatch(field, /<input/, `${label} is not a free-text input`)
+    assert.doesNotMatch(field, /<datalist/, `${label} has no datalist to type into`)
     assert.match(field, /<svg class="aemh_chevron"/, `${label} shows the shared chevron`)
-    assert.match(field, /<datalist/, `${label} still owns a datalist`)
+    assert.match(
+      field,
+      new RegExp(`<option value="${value}" selected=""`),
+      `${label} shows the saved value as a selected option`,
+    )
   }
+
+  const serial = fieldMarkup(report.markup, 'Default device serial')
+  assert.match(serial, /aemh_hasSuggest/, 'default serial keeps its suggestion input')
+  assert.match(serial, /<datalist/, 'default serial still owns a datalist')
 })
 
 /** The markup of one labelled field, cut at the next field's frame. */

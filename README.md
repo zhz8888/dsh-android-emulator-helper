@@ -100,14 +100,14 @@ The settings namespace equals the profile patch row id equals `android-emulator-
 | Group | Field | Kind | Default | Legacy env fallback |
 |---|---|---|---|---|
 | SDK and toolchain | `sdkPath` | text | empty (auto-detect) | `ANDROID_PLUGIN_SDK_PATH` |
-| | `jdkMajor` | text, suggestions from this machine | `17` | `ANDROID_PLUGIN_JDK_MAJOR` |
-| | `buildToolsVersion` | text, suggestions | `35.0.0` | `ANDROID_PLUGIN_BUILD_TOOLS_VERSION` |
+| | `jdkMajor` | select (`discovery`), JDK majors installed on this machine | `17` | `ANDROID_PLUGIN_JDK_MAJOR` |
+| | `buildToolsVersion` | select (`discovery`), build-tools installed on this machine | `35.0.0` | `ANDROID_PLUGIN_BUILD_TOOLS_VERSION` |
 | Emulator and devices | `defaultAvd` | select (`discovery`), every AVD found on this machine | `medium_phone` | `ANDROID_PLUGIN_DEFAULT_AVD` |
 | | `defaultSerial` | text, suggestions | empty | — |
 | | `autoStartEmulator` | switch | on | — |
 | | `emulatorArgs` | multiline, one argument per line | empty | — |
 | | `bootTimeoutSeconds` | integer | `180` | — |
-| API and system image | `apiLevel` | text, suggestions | `35` | `ANDROID_PLUGIN_API_LEVEL` |
+| API and system image | `apiLevel` | select (`discovery`), platforms and system images installed on this machine | `35` | `ANDROID_PLUGIN_API_LEVEL` |
 | | `systemImageVariant` | select | `default` | `ANDROID_PLUGIN_SYSTEM_IMAGE_VARIANT` |
 | | `systemImageAbi` | select (empty = host architecture) | auto | `ANDROID_PLUGIN_SYSTEM_IMAGE_ABI` |
 | | `minSdk` | integer | `23` | — |
