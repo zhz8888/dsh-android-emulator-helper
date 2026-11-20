@@ -224,23 +224,20 @@ test('the switch sits in a right-hand column, with its label and hint on the lef
   )
 })
 
-test('every dropdown shares one chevron, and the version fields are pick-only', () => {
-  // Two fixed selects, four discovery dropdowns (default AVD, JDK major,
-  // build-tools version and API level) and the one remaining suggestion input
-  // (default device serial) all render through the same wrapper, so no control
-  // that offers a list can look different from the selects in the other groups.
+test('dropdowns share one chevron; text and number inputs are plain', () => {
+  // Every control that offers a list is now a real dropdown: the two fixed
+  // selects and the four discovery dropdowns (default AVD, JDK major,
+  // build-tools version and API level) all render through one wrapper. No
+  // text or number input offers a list, so none carries a chevron or datalist.
   const wrappers = report.markup.match(/<span class="aemh_selectWrap">/g) ?? []
   const chevrons = report.markup.match(/<svg class="aemh_chevron"/g) ?? []
-  assert.equal(wrappers.length, 7, 'two selects, four discovery dropdowns, one suggestion input')
-  assert.equal(chevrons.length, wrappers.length, 'one chevron per framed control')
+  assert.equal(wrappers.length, 6, 'two selects and four discovery dropdowns')
+  assert.equal(chevrons.length, wrappers.length, 'one chevron per dropdown')
   assert.match(report.markup, /<path d="M4 6l4 4 4-4"><\/path>/, 'the chevron is a stroked inline SVG path')
+  assert.equal((report.markup.match(/<datalist/g) ?? []).length, 0, 'no datalist remains')
 
-  // The three version fields are now real <select> dropdowns fed by discovery:
-  // the user picks one of the versions this machine actually has and cannot
-  // type an arbitrary value. Only defaultSerial keeps a free-text input with a
-  // datalist, because a device serial need not be connected to be configured.
-  assert.equal((report.markup.match(/aemh_hasSuggest/g) ?? []).length, 1)
-  assert.equal((report.markup.match(/<datalist/g) ?? []).length, 1)
+  // The three version fields are pick-only dropdowns: the user picks one of
+  // the versions this machine actually has and cannot type an arbitrary value.
   for (const [label, value] of [
     ['JDK major version', '17'],
     ['Build-tools version', '35.0.0'],
@@ -250,7 +247,6 @@ test('every dropdown shares one chevron, and the version fields are pick-only', 
     assert.ok(field, `missing field frame for ${label}`)
     assert.match(field, /<select /, `${label} is a pick-only dropdown`)
     assert.doesNotMatch(field, /<input/, `${label} is not a free-text input`)
-    assert.doesNotMatch(field, /<datalist/, `${label} has no datalist to type into`)
     assert.match(field, /<svg class="aemh_chevron"/, `${label} shows the shared chevron`)
     assert.match(
       field,
@@ -259,9 +255,28 @@ test('every dropdown shares one chevron, and the version fields are pick-only', 
     )
   }
 
+  // Default device serial is a plain text input again: no chevron, no
+  // datalist, no candidate list to type into.
   const serial = fieldMarkup(report.markup, 'Default device serial')
-  assert.match(serial, /aemh_hasSuggest/, 'default serial keeps its suggestion input')
-  assert.match(serial, /<datalist/, 'default serial still owns a datalist')
+  assert.match(serial, /<input /, 'default serial is a plain input')
+  assert.doesNotMatch(serial, /<svg class="aemh_chevron"/, 'default serial has no chevron')
+  assert.doesNotMatch(serial, /<datalist/, 'default serial has no datalist')
+})
+
+test('number inputs take the short width', () => {
+  // Number fields do not need the whole column; they carry the short class
+  // that caps them at 200px, the way the sibling ios-simulator page does.
+  for (const label of [
+    'Emulator boot timeout (seconds)',
+    'Default minSdk',
+    'Gradle build timeout (seconds)',
+    'Default logcat lines',
+  ]) {
+    const field = fieldMarkup(report.markup, label)
+    assert.ok(field, `missing field frame for ${label}`)
+    assert.match(field, /aemh_control aemh_short/, `${label} carries the short class`)
+    assert.match(field, /type="number"/, `${label} is a number input`)
+  }
 })
 
 /** The markup of one labelled field, cut at the next field's frame. */

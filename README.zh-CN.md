@@ -103,7 +103,7 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 | | `jdkMajor` | 下拉（`discovery`），列出本机已安装 JDK 的主版本 | `17` | `ANDROID_PLUGIN_JDK_MAJOR` |
 | | `buildToolsVersion` | 下拉（`discovery`），列出本机已安装的 build-tools 版本 | `35.0.0` | `ANDROID_PLUGIN_BUILD_TOOLS_VERSION` |
 | 模拟器与设备 | `defaultAvd` | 下拉（`discovery`），列出本机所有 AVD | `medium_phone` | `ANDROID_PLUGIN_DEFAULT_AVD` |
-| | `defaultSerial` | 文本，建议来自本机 | 空 | — |
+| | `defaultSerial` | 文本 | 空 | — |
 | | `autoStartEmulator` | 开关 | 开 | — |
 | | `emulatorArgs` | 多行文本，每行一个参数 | 空 | — |
 | | `bootTimeoutSeconds` | 整数 | `180` | — |
@@ -123,7 +123,7 @@ dsh plugin --profile <profile> add @zhz8888/dsh-android-emulator-helper \
 host 半侧用两个精确 Fetch 路由支撑页面上的按钮：
 
 - **检测环境** → `GET /api/android-emulator-helper/status`，返回与 `android_preflight` 相同的检查结果，逐条显示状态、详情与修复建议。
-- **刷新设备与 AVD** → `GET /api/android-emulator-helper/inventory`，探测 SDK 根目录、AVD 目录（`ANDROID_AVD_HOME`，否则 `$ANDROID_USER_HOME/avd`，否则 `~/.android/avd`）里的 AVD 并与 `emulator -list-avds` 给出的名字合并、已连接设备、已安装 JDK、已装系统镜像/platform/build-tools，用于填充上方字段的建议列表。payload 目录已不存在的记录在两个来源里都会被剔除。正是这次扫描让默认 AVD 下拉框在 emulator 无法运行时也能列出本机 AVD。
+- **刷新设备与 AVD** → `GET /api/android-emulator-helper/inventory`，探测 SDK 根目录、AVD 目录（`ANDROID_AVD_HOME`，否则 `$ANDROID_USER_HOME/avd`，否则 `~/.android/avd`）里的 AVD 并与 `emulator -list-avds` 给出的名字合并、已连接设备、已安装 JDK、已装系统镜像/platform/build-tools，用于填充上方的 discovery 下拉框。payload 目录已不存在的记录在两个来源里都会被剔除。正是这次扫描让默认 AVD 下拉框在 emulator 无法运行时也能列出本机 AVD。
 
 页面文案**不走路由**。所有标签、提示与占位符都写在 `locale/en.json` 与 `locale/zh.json` 里；host 半侧读取这两个文件，通过 web server 的 `webserver/index-inject` 表以页面初始化全局变量（`__DSH_ANDROID_EMULATOR_HELPER_LOCALE__`）的形式发布，由 web server 在插件 bundle 之前渲染进 `index.html`。因此浏览器半侧在模块作用域同步读到文案、按 key 查表——页面本身不含任何字符串，两种语言不会各自漂移，而且首帧就是正确语言，不会先显示原始 key 再等 fetch 落地。客户端 bundle 无法读取自己包内的文件，包资源路由又只收图片，所以这张注入表就是文案跨进浏览器的通道。
 

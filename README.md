@@ -103,7 +103,7 @@ The settings namespace equals the profile patch row id equals `android-emulator-
 | | `jdkMajor` | select (`discovery`), JDK majors installed on this machine | `17` | `ANDROID_PLUGIN_JDK_MAJOR` |
 | | `buildToolsVersion` | select (`discovery`), build-tools installed on this machine | `35.0.0` | `ANDROID_PLUGIN_BUILD_TOOLS_VERSION` |
 | Emulator and devices | `defaultAvd` | select (`discovery`), every AVD found on this machine | `medium_phone` | `ANDROID_PLUGIN_DEFAULT_AVD` |
-| | `defaultSerial` | text, suggestions | empty | — |
+| | `defaultSerial` | text | empty | — |
 | | `autoStartEmulator` | switch | on | — |
 | | `emulatorArgs` | multiline, one argument per line | empty | — |
 | | `bootTimeoutSeconds` | integer | `180` | — |
@@ -123,7 +123,7 @@ That last card decides where the page lives. With **Show in Settings** off, the 
 Two exact Fetch routes back the page's buttons on the host half:
 
 - **Run diagnostic** → `GET /api/android-emulator-helper/status`, the same checks as `android_preflight`, each with its detail and fix hint.
-- **Refresh devices and AVDs** → `GET /api/android-emulator-helper/inventory`, detecting the SDK root, the AVDs stored in the AVD directory (`ANDROID_AVD_HOME`, else `$ANDROID_USER_HOME/avd`, else `~/.android/avd`, merged with the names `emulator -list-avds` adds), connected devices, installed JDKs, system images, platforms and build-tools to populate the fields' suggestions. A record whose payload directory is gone is dropped from both sources. The scan is what lets the default-AVD dropdown list the machine's AVDs even when the emulator cannot be run.
+- **Refresh devices and AVDs** → `GET /api/android-emulator-helper/inventory`, detecting the SDK root, the AVDs stored in the AVD directory (`ANDROID_AVD_HOME`, else `$ANDROID_USER_HOME/avd`, else `~/.android/avd`, merged with the names `emulator -list-avds` adds), connected devices, installed JDKs, system images, platforms and build-tools to populate the discovery dropdowns. A record whose payload directory is gone is dropped from both sources. The scan is what lets the default-AVD dropdown list the machine's AVDs even when the emulator cannot be run.
 
 The page's copy is **not** a route. Every label, hint and placeholder lives in `locale/en.json` and `locale/zh.json`; the host half reads those two files and publishes them as a page-initialization global (`__DSH_ANDROID_EMULATOR_HELPER_LOCALE__`) through the web server's `webserver/index-inject` table, which renders it into `index.html` ahead of the plugin bundle. The browser half therefore reads the copy synchronously at module scope and looks each string up by key — so the page carries no strings of its own, the two languages cannot drift apart, and the first render is already in the right language instead of showing raw keys until a fetch lands. A client bundle cannot read a file of its own package, and the package asset route admits images only, so that injection table is how the copy crosses into the browser.
 
