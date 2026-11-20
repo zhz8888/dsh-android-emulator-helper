@@ -134,7 +134,7 @@ The original plugin's `userConfig` — the seven variables in the last column ab
 ## Screenshots
 
 All four are real captures of this configuration page — nothing is mocked up —
-taken in DSH harness 0.2.2-rc.1, in the order you scroll it. They are
+taken in DSH harness 0.2.2-rc.5, in the order you scroll it. They are
 1598 × 1588 PNGs of the tightened card rhythm
 (7px above and below a field, a `12px 16px` card, 16px between cards), captured
 in the Chinese locale with the **Plugins** panel open: the first shot opens on

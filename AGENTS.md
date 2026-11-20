@@ -471,7 +471,7 @@ and the order is the order they are displayed. The four live in `assets/` under
 in the Plugins panel of DSH, in the order it scrolls — never a mock-up, and
 never a shot of a build that was not captured from the running page. They were
 captured on the plugin row's own page — the page the row's **Configure** control
-opens — in DSH 0.2.2-rc.1, so the placement they show is the one the plugin
+opens — in DSH 0.2.2-rc.5, so the placement they show is the one the plugin
 uses today.
 
 The READMEs embed the same four files, so a rename lands in three places at once;
