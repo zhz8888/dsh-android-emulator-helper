@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
@@ -35,6 +35,20 @@ export function appRoots({ platform = process.platform, env = process.env, resou
     roots.push(path.join(resourcesPath, 'app.asar'), path.join(resourcesPath, 'app'))
   }
   if (platform === 'darwin') {
+    // The app is installed under whatever name its release carries — the
+    // desktop build ships as "DSH Desktop.app", the current one as "DSH
+    // NEXT.app" — so every bundle in /Applications is a candidate rather than
+    // one hard-coded name. A name-only lookup silently skipped the only
+    // real-shell comparison this suite makes.
+    for (const directory of ['/Applications', path.join(env.HOME ?? os.homedir(), 'Applications')]) {
+      for (const name of entriesOf(directory)) {
+        if (!name.endsWith('.app')) continue
+        roots.push(path.join(directory, name, 'Contents', 'Resources', 'app'))
+        roots.push(path.join(directory, name, 'Contents', 'Resources', 'app.asar'))
+      }
+    }
+    // The historical name stays as a fallback: a host whose /Applications
+    // cannot be listed still resolves the layout this suite was written for.
     roots.push('/Applications/DSH Desktop.app/Contents/Resources/app')
     roots.push(path.join(env.HOME ?? os.homedir(), 'Applications', 'DSH Desktop.app', 'Contents', 'Resources', 'app'))
     return roots
