@@ -141,10 +141,14 @@ function globExpression(pattern) {
  * @returns {string} the pattern, quoted segment by segment.
  */
 function shCasePattern(pattern) {
+  // `*` and `?` are the two wildcards {@link globExpression} understands, so
+  // both stay unquoted here; every other character is quoted, which keeps a
+  // space inside one word. Quoting `?` made the same fake match a different
+  // set of strings on POSIX than on Windows.
   return String(pattern)
-    .split('*')
-    .map((part) => (part.length === 0 ? '' : shQuote(part)))
-    .join('*')
+    .split(/([*?])/)
+    .map((part) => (part === '*' || part === '?' ? part : part.length === 0 ? '' : shQuote(part)))
+    .join('')
 }
 
 /**
