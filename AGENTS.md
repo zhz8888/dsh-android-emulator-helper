@@ -18,7 +18,7 @@ on purpose — the browser bundle is written, not generated.
 
 ```bash
 pnpm install                 # the peers, react/react-dom and the type toolchain
-pnpm test                    # 390 tests (378 pass, 0 fail, 12 skipped on macOS): unit, settings projection, parsers, render, routes, gate checks
+pnpm test                    # 392 tests (381 pass, 0 fail, 11 skipped on macOS): unit, settings projection, parsers, render, routes, gate checks
 pnpm run check               # test + check-bundle + verify-mount + the type gate
 pnpm run typecheck           # tsc --noEmit over the host half and the browser half
 pnpm run verify:mount        # real Cordis Context + real ToolRuntime, all 23 tools dispatched
@@ -626,7 +626,7 @@ points at a stale release whose types do not match the runtime API.
 `pnpm run check` is the definition of done: the unit and render suites, then the
 consistency gate, then the mount, then the type gate. `pnpm test` alone is not
 enough — it cannot see the host↔client drift the gate exists for, and it cannot
-see a type error at all. The suite is 390 tests: 378 pass, 0 fail, and 12 are
+see a type error at all. The suite is 392 tests: 381 pass, 0 fail, and 11 are
 skipped on a macOS host (enumerated below).
 
 | Layer | Command | What it proves |
@@ -684,7 +684,7 @@ Three consequences worth knowing:
   would list that machine's AVDs in every suite that starts an emulator. Point
   it at the throwaway tree, as the fake-tool runtimes do.
 
-Twelve of them are skipped on a macOS host, and each skip carries its reason
+Eleven of them are skipped on a macOS host, and each skip carries its reason
 next to it. Ten are the ones whose contract **is** Windows: the `.bat`/`.cmd`
 routing cases (a batch file through `cmd.exe` with every token quoted, a
 Windows executable spawned directly, a `.bat` in a directory with a space, a
@@ -692,12 +692,17 @@ Windows executable spawned directly, a `.bat` in a directory with a space, a
 the batch file unchanged, an argument a batch file cannot carry, a `.bat`
 reporting its own exit code, and the `cmd.exe` fallback), plus the timed-out
 start that has to kill the wrapped emulator rather than only its launcher —
-which is a `.cmd` grandchild on Windows and a direct child on POSIX. Two more
-are environmental: the seed-table check, which skips when no installed DSH web
-frontend can be located on the platform (`DSH_WEB_FRONTEND` points it at one
-the default search cannot see); and the UI-backend case, which expects no `adb`
-to be reachable and skips itself on a machine that has a real SDK, because the
-host resolves one inside an installed SDK.
+which is a `.cmd` grandchild on Windows and a direct child on POSIX. One more
+is environmental: the UI-backend case, which expects no `adb` to be reachable
+and skips itself on a machine that has a real SDK, because the host resolves one
+inside an installed SDK.
+
+The seed-table check is the one comparison against a real shell, so it must not
+skip on a machine that has DSH installed: it enumerates every `.app` bundle in
+`/Applications` and `~/Applications` rather than one hard-coded name, because
+the desktop build ships as `DSH Desktop.app` and the current one as
+`DSH NEXT.app`. It skips only when no installed frontend exists at all, and
+`DSH_WEB_FRONTEND` points it at one the default search cannot see.
 
 The POSIX-only cases — the SIGTERM trap-and-escalate pair, a child killed by a
 signal, a grandchild holding a pipe open, a non-batch tool spawned directly and
