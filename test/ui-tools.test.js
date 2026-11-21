@@ -874,7 +874,7 @@ test('resolve skips nodes without bounds', async () => {
 })
 
 test('resolve reports a clean error for no match and for an empty query', async () => {
-  const { rt } = await fakeAdb({ screen: SCREEN })
+  const { rt, argv } = await fakeAdb({ screen: SCREEN })
   await assert.rejects(
     () => resolve(rt, { query: 'zzz-absent', serial: 'emulator-5554' }),
     (error) => {
@@ -882,8 +882,12 @@ test('resolve reports a clean error for no match and for an empty query', async 
       return true
     },
   )
+  // An empty query can never match, so it is refused before the screen is
+  // dumped: the dump is the expensive half of the call.
+  const before = (await argv()).length
   await assert.rejects(() => resolve(rt, { query: '', serial: 'emulator-5554' }), /must not be empty/)
   await assert.rejects(() => resolve(rt, { query: '   ', serial: 'emulator-5554' }), /must not be empty/)
+  assert.equal((await argv()).length, before, 'an empty query must not dump the screen')
 })
 
 test('tap rounds fractional coordinates for adb and reports what was sent', async () => {

@@ -212,6 +212,9 @@ test('an invalid application id is refused before the device is queried for a PI
   )
   const calls = await argv()
   assert.equal(calls.some((line) => line.includes('pidof') || line.includes('logcat')), false)
+  // The id is validated before the device is resolved, so not even the device
+  // list is read: a malformed id must never be able to start an emulator.
+  assert.deepEqual(calls, [], 'a refused id must not reach adb at all')
 })
 
 /*

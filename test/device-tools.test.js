@@ -675,6 +675,9 @@ test('an escaping screenshot path is refused before the capture runs', async () 
     false,
     'no capture may run for a refused path',
   )
+  // The path is resolved before the device is, so not even the device list is
+  // read: a refusal must not be able to start an emulator on the way.
+  assert.deepEqual(invocations, [], 'a refused path must not reach adb at all')
 })
 
 // ---------------------------------------------------------------------------
