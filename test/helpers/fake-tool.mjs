@@ -549,15 +549,3 @@ export async function writeFakeTool(dir, name, steps, options = {}) {
   await chmod(file, 0o755)
 }
 
-/**
- * The fake's source, as text, for a test that asserts on it.
- *
- * @param {FakeStep[]} steps - what the fake does.
- * @param {NodeJS.Platform} [platform] - the platform to render for; defaults to
- *   the host. Naming the other one is how the POSIX rendering can be checked
- *   from a Windows machine and vice versa.
- * @returns {string} the script that platform would run.
- */
-export function fakeToolSource(steps, platform = process.platform) {
-  return platform === 'win32' ? renderNode(steps) : renderShell(steps)
-}

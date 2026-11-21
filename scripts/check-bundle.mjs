@@ -31,17 +31,6 @@ function isRecord(value) {
 }
 
 /**
- * The dictionaries the host publishes to the page, read from the same files it reads.
- *
- * @returns {{en: Record<string, string>, zh: Record<string, string>}} the dictionaries.
- */
-function localePayload() {
-  const read = (language) =>
-    JSON.parse(readFileSync(path.join(ROOT, 'locale', `${language}.json`), 'utf8')).settings
-  return { en: read('en'), zh: read('zh') }
-}
-
-/**
  * Read one `field: value` property of a slot registration entry.
  *
  * @param {string} body - the text between the entry's braces.
