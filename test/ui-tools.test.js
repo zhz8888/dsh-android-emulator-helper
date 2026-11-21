@@ -163,10 +163,14 @@ async function fakeAdb(options = {}) {
   // flight together. A serialized implementation waits out the deadline and
   // the test's own assertion then fails on the command log, which is the
   // failure it is meant to report.
-  const rendezvous = (files, serial) => [
+  // Each dump announces itself in a file of its own and then waits for the
+  // OTHER device's announcement. Waiting on the shared file it had just
+  // appended to made the wait a no-op, so a serialized implementation would
+  // have sailed through the rendezvous.
+  const rendezvous = (files, serial, otherSerial) => [
     { write: [files.owner, '${DUMP_PATH}'] },
-    { append: [state('dump-started'), `${serial}\n`] },
-    { waitFor: { file: state('dump-started'), timeout: RENDEZVOUS_TIMEOUT_S } },
+    { append: [state(`dump-started-${serial}`), `${serial}\n`] },
+    { waitFor: { file: state(`dump-started-${otherSerial}`), timeout: RENDEZVOUS_TIMEOUT_S } },
     { ifContentEquals: [files.owner, '${DUMP_PATH}'], then: publish(files) },
     { append: [state('dump-overlaps'), '${DUMP_PATH}'] },
     { exit: 137 },
@@ -223,10 +227,10 @@ async function fakeAdb(options = {}) {
       then: [{ write: [state('dump-displaced'), 'used'] }, { exit: 137 }],
     },
     // One branch per device, so a dump and its read-back stay on that device.
-    ...devices.map(({ serial, files }) => ({
+    ...devices.map(({ serial, files }, index) => ({
       ifArg: [2, serial],
       then: options.rendezvous
-        ? rendezvous(files, serial)
+        ? rendezvous(files, serial, devices[(index + 1) % devices.length]?.serial ?? serial)
         : options.singletonDump
           ? singleton(files)
           : publish(files),
