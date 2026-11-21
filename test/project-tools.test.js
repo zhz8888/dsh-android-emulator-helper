@@ -199,6 +199,24 @@ test('discover reports the variants the application module declares', async () =
   assert.deepEqual(found.variants, ['freeDebug', 'freeRelease', 'freeStaging', 'paidDebug', 'paidRelease', 'paidStaging'])
 })
 
+test('discover reads a module declared without the colon prefix', async () => {
+  // Gradle accepts `include("mobile")` as the same module as `include(":mobile")`.
+  // Matching only the colon-prefixed spelling dropped the module entirely, and
+  // the build then ran `:app:assembleDebug` against a project with no `app`.
+  const root = await mkdtemp(path.join(tmpdir(), 'aemh-nocolon-'))
+  await writeFile(path.join(root, 'settings.gradle.kts'), 'include("mobile")\n', 'utf8')
+  await writeModule(
+    root,
+    'mobile',
+    'plugins { id("com.android.application") }\nandroid { defaultConfig { applicationId = "com.example.mobile" } }\n',
+  )
+
+  const found = await discover(runtimeAt(root), root)
+  assert.deepEqual(found.modules, [':mobile'])
+  assert.equal(found.applicationModule, ':mobile')
+  assert.equal(found.applicationIds[0], 'com.example.mobile')
+})
+
 test('discover falls back to debug when a project declares no build types', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'aemh-novariants-'))
   await writeFile(path.join(root, 'settings.gradle.kts'), 'include(":app")\n', 'utf8')
