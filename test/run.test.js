@@ -228,4 +228,10 @@ test('callTimeoutMs converts seconds and refuses a non-positive override', () =>
   assert.throws(() => callTimeoutMs(-1, 3), /Invalid timeoutMs: -1/)
   assert.throws(() => callTimeoutMs(Number.NaN, 3), /Invalid timeoutMs/)
   assert.throws(() => callTimeoutMs(Number.POSITIVE_INFINITY, 3), /Invalid timeoutMs/)
+  // Node stores a timer delay in a 32-bit signed integer: a larger deadline
+  // wraps and fires after 1 ms, so the command would be killed at once and
+  // reported as timed out. The ceiling is refused, not clamped.
+  assert.equal(callTimeoutMs(2_147_483_647, 3), 2_147_483_647)
+  assert.throws(() => callTimeoutMs(2_147_483_648, 3), /Invalid timeoutMs: 2147483648/)
+  assert.throws(() => callTimeoutMs(99_999_999_999, 3), /Invalid timeoutMs/)
 })
