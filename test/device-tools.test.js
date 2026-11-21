@@ -685,9 +685,16 @@ test('an escaping screenshot path is refused before the capture runs', async () 
 // ---------------------------------------------------------------------------
 
 test('start_emulator never reuses an existing target by serial', async () => {
-  const { rt, paths } = await toolchain({ adb: [{ exit: 0 }], emulator: [{ exit: 0 }] })
+  // Both fakes record, so the empty-argv assertion below can actually fail: a
+  // fake without a `record` step never creates the file, and `argvs()` then
+  // answers `[]` no matter what the tool spawned.
+  const { rt, paths } = await toolchain({
+    adb: (p) => [{ record: p.argvFile }, { exit: 0 }],
+    emulator: (p) => [{ record: p.spawnArgv }, { exit: 0 }],
+  })
   await assert.rejects(() => startEmulator(rt, { serial: 'emulator-5554' }), /always starts a new emulator/)
   assert.deepEqual(await argvs(paths.argvFile), [], 'the refusal happens before any tool is spawned')
+  assert.deepEqual(await argvs(paths.spawnArgv), [], 'the refusal happens before any tool is spawned')
 })
 
 test('stop_emulator kills through the adb console and reports an unreachable one', async () => {
@@ -804,9 +811,14 @@ test('an AVD name is trimmed before it is matched and passed to -avd', async () 
 })
 
 test('a blank AVD name is refused before an emulator is spawned', async () => {
+  // The fake records its spawn, so the assertion below is not vacuous.
   const { rt, paths } = await toolchain({
     adb: ADB_EMPTY,
-    emulator: EMULATOR_LISTS('Pixel_10'),
+    emulator: (p) => [
+      { ifSub: '-list-avds', then: [{ out: 'Pixel_10' }, { exit: 0 }] },
+      { record: p.spawnArgv },
+      { exit: 1 },
+    ],
   })
   await assert.rejects(() => startEmulator(rt, { avd: '   ' }), /Invalid Android AVD name/)
   assert.deepEqual(await argvs(paths.spawnArgv), [], 'no emulator may be spawned for a blank name')
@@ -951,8 +963,16 @@ test('create_avd names the installed images instead of forwarding avdmanager', a
   await mkdir(path.join(sdk, 'system-images', 'android-37.2', 'google_apis_playstore_ps16k', 'arm64-v8a'), {
     recursive: true,
   })
+  // The runtime carries no `config` of its own — it is the projection, not the
+  // entry — so the pinned runtime is built from the same live references the
+  // fixture used, with only `sdkPath` replaced. Spreading `rt.config` was a
+  // no-op that silently dropped `dataDir` and pointed the runtime at the
+  // developer's real ~/.dsh data root.
   const pinned = createRuntime({
-    config: { ...rt.config, sdkPath: { get: () => sdk } },
+    config: {
+      dataDir: { get: () => path.join(rt.cwd, 'data') },
+      sdkPath: { get: () => sdk },
+    },
     env: rt.env,
     cwd: rt.cwd,
   })

@@ -512,7 +512,10 @@ test('a model that cannot be built leaves a readable page instead of no page', (
   // The constructor takes the first projection, so it is the one step a
   // primitives release can break. Failing it must not take the client half — and
   // with it the whole plugin page — down.
-  const record = mountWith({ SettingsFormModel: ThrowingModel })
+  // The fixture has to carry the text-field spec too: `Controller` builds every
+  // field's spec before it constructs the model, so a primitives module without
+  // `settingsTextField` throws there and the constructor under test never runs.
+  const record = mountWith({ SettingsFormModel: ThrowingModel, settingsTextField })
   assert.equal(record.applyError, undefined, 'apply must not throw when the shared model cannot be built')
   assert.equal(record.warnings.length, 1, 'the failure is logged')
   assert.ok(record.pluginPage !== undefined, 'a page must still be registered')

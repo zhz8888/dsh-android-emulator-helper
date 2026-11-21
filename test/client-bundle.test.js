@@ -42,8 +42,20 @@ test('a discovery dropdown keeps a saved value the discovery did not return', ()
 })
 
 test('client bundle resolves only modules from the static table', () => {
-  const { required } = loadBundle()
+  // The default resolver already refuses a specifier outside the table, so the
+  // loop below can only ever see admitted ones. What this test can still prove
+  // is that the bundle requires something at all, and that every specifier it
+  // asks for is one the shell's table names — checked against a resolver that
+  // records instead of refusing, so the assertion is not a tautology.
+  const seen = []
+  const { required } = loadBundle({
+    resolve: (specifier) => {
+      seen.push(specifier)
+      return { useId: () => 'id', useRef: (value) => ({ current: value }), useCallback: (fn) => fn, useState: (value) => [value, () => {}] }
+    },
+  })
   assert.ok(required.length > 0, 'the bundle requires at least React')
+  assert.deepEqual(seen, required, 'every require goes through the shell resolver')
   for (const specifier of required) {
     assert.ok(STATIC_MODULES.includes(specifier), `unexpected require: ${specifier}`)
   }

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import * as plugin from '../lib/index.js'
 import { FIELD_KEYS } from '../lib/settings.js'
@@ -13,7 +13,17 @@ import { FIELD_KEYS } from '../lib/settings.js'
  * AVDs would otherwise leak into its answer. Each test file runs in its own
  * process.
  */
-process.env.ANDROID_AVD_HOME = await mkdtemp(path.join(tmpdir(), 'aemh-routes-avd-'))
+const avdHome = await mkdtemp(path.join(tmpdir(), 'aemh-routes-avd-'))
+const previousAvdHome = process.env.ANDROID_AVD_HOME
+process.env.ANDROID_AVD_HOME = avdHome
+// The scratch tree and the environment write are undone when the file's tests
+// finish: a leaked directory per run is a run artifact, and an unrestored
+// variable would follow any runner that stops isolating test files.
+after(async () => {
+  if (previousAvdHome === undefined) delete process.env.ANDROID_AVD_HOME
+  else process.env.ANDROID_AVD_HOME = previousAvdHome
+  await rm(avdHome, { recursive: true, force: true })
+})
 
 /**
  * Mount the plugin on a REAL Cordis context and INVOKE each settings route's
